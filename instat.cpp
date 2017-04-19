@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <pin.H>
 #include <map>
-#include <unordered_set>
-#include <sstream>
+#include <string>
+#include <algorithm>
+#include <locale>
 
 #ifdef _MSC_VER
 # define PxPTR "%Ix"
@@ -14,31 +15,47 @@
 # endif
 #endif
 
-#define MYREG_INVALID   ((REG)(REG_LAST + 1))
-#define MYREG_JMPTARGET ((REG)(REG_LAST + 2))
-#define MYREG_MEMORY    ((REG)(REG_LAST + 3))
 struct insrecord {
-	string opcode;
-	ADDRINT low;
-	ADDRINT high;
-	REG reg;
+	insrecord() {
+		count = 0;
+		for (int i = 0; i < 64; i++)
+			bitwidth_count[i] = 0;
+	}
+
+	~insrecord() {}
+
+	string category;
+	unsigned int bitwidth_count[64];
 	int count;
-	int branch_taken; // -1 for instruction other than conditional branch
-	bool iscallentry;
-	insrecord () : count(0), iscallentry(false) {}
+};
+
+struct addrrecord {
+	addrrecord() {
+		count = 0;
+	}
+
+	int count;
+};
+
+enum
+{
+	iarg_reg = 0,
+	iarg_mem = 1,
+	iarg_imm = 2,
+	iarg_br = 3
 };
 
 const char *logname = "instat.log";
 const char *tsvname = "instat.tsv";
 FILE *logfp;
-std::map<ADDRINT,insrecord> insmap;
+std::map<ADDRINT,addrrecord> addrmap;
+std::map<string,insrecord> insmap;
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
-bool ins_conflict_detected = false;
 
 static void img_load (IMG img, void *v)
 {
-	fprintf(logfp, "load %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=%x\n",
+	fprintf(logfp, "load %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
 			IMG_Name(img).c_str(),
 			IMG_LoadOffset(img), IMG_LowAddress(img), IMG_HighAddress(img),
 			IMG_StartAddress(img), IMG_SizeMapped(img));
@@ -56,41 +73,35 @@ static void img_load (IMG img, void *v)
 		for(RTN rtn = SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn)) {
 			fprintf(logfp, PxPTR " %s\n", RTN_Address(rtn), RTN_Name(rtn).c_str());
 			symbols[RTN_Address(rtn)] = RTN_Name(rtn);
-			insmap[RTN_Address(rtn)].iscallentry = true;
 		}
 	}
 }
 
 static void img_unload (IMG img, void *v)
 {
-	fprintf(logfp, "unload %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=%x\n",
+	fprintf(logfp, "unload %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
 			IMG_Name(img).c_str(),
 			IMG_LoadOffset(img), IMG_LowAddress(img), IMG_HighAddress(img),
 			IMG_StartAddress(img), IMG_SizeMapped(img));
 }
 
-static void on_branch_taken (struct insrecord *rec)
-{
-	rec->branch_taken ++;
+static inline bool REG_is_integer (REG reg) {
+	return (reg >= REG_RBASE && reg < REG_MM_BASE);
 }
 
-static void on_ins (struct insrecord *rec, ADDRINT regval)
+unsigned int get_bitwidth(ADDRINT val)
 {
-	rec->low = min(rec->low, regval);
-	rec->high = max(rec->high, regval);
-	rec->count ++;
+	long long int test = val;
+	unsigned int bitwidth = 0;
+	while (test != 0 && test != -1)
+	{
+		test >>= 1;
+		bitwidth++;
+	}
+	return bitwidth;
 }
 
-static void on_ins_indcall (struct insrecord *rec, ADDRINT regval, BOOL isindcall)
-{
-	rec->low = min(rec->low, regval);
-	rec->high = max(rec->high, regval);
-	rec->count ++;
-	if (isindcall)
-		insmap[regval].iscallentry = true;
-}
-
-static void on_ins_memory (struct insrecord *rec, ADDRINT addr, ADDRINT size, BOOL isindcall)
+ADDRINT memory_getvalue(ADDRINT addr, ADDRINT size)
 {
 	ADDRINT val;
 	switch (size) {
@@ -102,149 +113,110 @@ static void on_ins_memory (struct insrecord *rec, ADDRINT addr, ADDRINT size, BO
 #endif
 		default: val = *(ADDRINT *)addr;
 	}
-	rec->low = min(rec->low, val);
-	rec->high = max(rec->high, val);
-	rec->count ++;
-	if (isindcall)
-		insmap[val].iscallentry = true;
+	return val;
 }
 
-static inline bool REG_is_integer (REG reg) {
-	return (reg >= REG_RBASE && reg < REG_MM_BASE);
+static void on_ins (insrecord *rec, addrrecord *arec, UINT32 ops, ...)
+{
+	va_list lst;
+	UINT32 bitwidth = 0;
+	ADDRINT addr, size, val;
+
+	va_start(lst, ops);
+	for (UINT32 i = 0; i < ops; i++) {
+		UINT32 type = va_arg(lst, UINT32);
+		switch (type) {
+		case iarg_reg:
+		case iarg_imm:
+			bitwidth = max(bitwidth, get_bitwidth(va_arg(lst, ADDRINT)));
+			break;
+		case iarg_mem:
+			addr = va_arg(lst, ADDRINT);
+			size = va_arg(lst, ADDRINT);
+			val = memory_getvalue(addr, size);
+			bitwidth = max(bitwidth, get_bitwidth(val));
+			break;
+		case iarg_br:
+		default:
+			break;
+		}
+	}
+	va_end(lst);
+	rec->bitwidth_count[bitwidth]++;
+	rec->count++;
+	arec->count++;
 }
 
 static void instruction (INS ins, void *v)
 {
-	ADDRINT addr = INS_Address(ins);
-	struct insrecord &record = insmap[addr];
+	string opcode = INS_Mnemonic(ins);
+	ADDRINT address = INS_Address(ins);
+	if (opcode.empty())
+		return;
 
-	/* PIN may call us mutiple times on the same instruction.
-	 * We need to do INS_InsertCall everytime, but initiallize insrecord for the first time.
-	 * We can't handle the situation when different code are loaded into the same address at different time. */ 
-	if (!record.opcode.empty()) {
-		if (INS_Disassemble(ins) != insmap[addr].opcode) {
-			if (!ins_conflict_detected) {
-				fprintf(logfp, "conflicting instruction at %p. old=\"%s\", new=\"%s\". Statistics is incomplete.\n",
-						(void *)addr, insmap[addr].opcode.c_str(), INS_Disassemble(ins).c_str());
-				ins_conflict_detected = true;
-			}
-			return;
-		}
-	} else {
-		//record.addr = addr;
-		record.opcode = INS_Disassemble(ins);
-		record.branch_taken = INS_IsBranch(ins) && INS_HasFallThrough(ins) ? 0 : -1;
-		record.low = -1;
-		record.high = 0;
+	insrecord &record = insmap[opcode];
+	addrrecord &arecord = addrmap[address];
+	IARGLIST args = IARGLIST_Alloc();
 
-		if (INS_IsBranchOrCall(ins)) {
-			record.reg = MYREG_JMPTARGET;
-			if (INS_IsDirectCall(ins)) {
-				insmap[INS_DirectBranchOrCallTargetAddress(ins)].iscallentry = true;
-				record.low = record.high = INS_DirectBranchOrCallTargetAddress(ins);
-			}
-		} else if (INS_IsMemoryRead(ins) && INS_MemoryReadSize(ins) <= sizeof(void*)) {
-			record.reg = MYREG_MEMORY;
-		} else {
-			record.reg = MYREG_INVALID;
-			for (UINT32 regindex = 0; regindex < INS_OperandCount(ins); regindex ++) {
-				if (INS_OperandRead(ins, regindex) && INS_OperandIsReg(ins, regindex) && REG_is_integer(INS_OperandReg(ins, regindex))) {
-					record.reg = INS_OperandReg(ins, regindex);
-					break;
+	record.category = CATEGORY_StringShort(INS_Category(ins));
+
+	UINT32 ops = 0;
+	for (UINT32 i = 0; i < INS_OperandCount(ins); i++) {
+		if (INS_OperandIsReg(ins, i)) {
+			if (INS_OperandRead(ins, i)) {
+				if (REG_is_integer(INS_OperandReg(ins, i))) {
+					IARGLIST_AddArguments(args, IARG_UINT32, iarg_reg,
+						IARG_REG_VALUE, INS_OperandReg(ins, i),
+						IARG_END);
+					ops++;
 				}
 			}
-			if (record.reg == MYREG_INVALID && INS_MaxNumRRegs(ins) > 0 && REG_is_integer(INS_RegR(ins, 0)))
-				record.reg = INS_RegR(ins, 0);
+		} else if (INS_OperandIsImmediate(ins, i)) {
+			IARGLIST_AddArguments(args, IARG_UINT32, iarg_imm, IARG_ADDRINT, INS_OperandImmediate(ins, i), IARG_END);
+			ops++;
 		}
 	}
 
-	if (record.reg == MYREG_JMPTARGET) {
-		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins_indcall),
-				IARG_ADDRINT, &record, // we assume std::map doesn't move our data.
-				IARG_BRANCH_TARGET_ADDR,
-				IARG_BOOL, INS_IsCall(ins) && (!INS_IsDirectCall(ins)),
-				IARG_END);
-	} else if (record.reg == MYREG_MEMORY) {
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins_memory),
-				IARG_ADDRINT, &record,
-				IARG_MEMORYREAD_EA,
+	for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
+		if (INS_MemoryOperandIsRead(ins, i)) {
+			IARGLIST_AddArguments(args, IARG_UINT32, iarg_mem,
+				IARG_MEMORYOP_EA, i,
 				IARG_MEMORYREAD_SIZE,
-				IARG_BOOL, INS_IsCall(ins) && (!INS_IsDirectCall(ins)),
 				IARG_END);
-	} else if (record.reg == MYREG_INVALID) {
-		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins),
-				IARG_ADDRINT, &record,
-				IARG_ADDRINT, 0,
-				IARG_END);
-	} else {
-		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins),
-				IARG_ADDRINT, &record,
-				IARG_REG_VALUE, record.reg,
-				IARG_END);
-	}
-	if (INS_IsBranch(ins) && INS_HasFallThrough(ins)) {
-		INS_InsertCall(ins, IPOINT_TAKEN_BRANCH, AFUNPTR(on_branch_taken),
-				IARG_ADDRINT, &record,
-				IARG_END);
-	}
-}
-
-static string get_rtn_name (ADDRINT addr, bool full)
-{
-	std::map<ADDRINT,std::pair<ADDRINT,string> >::iterator it = imgs.upper_bound(addr);
-	std::stringstream ss;
-	if (it == imgs.end() || it->first == 0 || addr < it->second.first)
-		ss << "[?].";
-	else
-		ss << "[" << it->second.second << "].";
-
-	if (symbols.find(addr) == symbols.end())
-		ss << std::hex << addr;
-	else
-		ss << PIN_UndecorateSymbolName(symbols[addr], full ? UNDECORATION_COMPLETE : UNDECORATION_NAME_ONLY);
-	return ss.str();
-}
-
-static void on_fini (INT32 code, void *v)
-{
-	fprintf(logfp, "fini %d\n", code);
-	FILE *fp = fopen(tsvname, "w");
-	for(std::map<ADDRINT,insrecord>::iterator ite = insmap.begin(); ite != insmap.end(); ite ++) {
-		struct insrecord &rec = ite->second;
-		if (rec.opcode.empty())
-			continue;
-		fprintf(fp, PxPTR "\t%s\t%d\t%s",
-				ite->first, rec.opcode.c_str(), rec.count,
-				rec.reg == MYREG_INVALID ? "-" :
-				(rec.reg == MYREG_JMPTARGET ? "->" : (rec.reg == MYREG_MEMORY ?
-					"*" : REG_StringShort(rec.reg).c_str())));
-
-		if (rec.count == 0 || rec.reg == MYREG_INVALID)
-			fprintf(fp, "\t-\t-");
-		else
-			fprintf(fp, "\t" PxPTR "\t" PxPTR, rec.low, rec.high);
-
-		if (rec.iscallentry)
-			fprintf(fp, "\tentry: %s", get_rtn_name(ite->first, true).c_str());
-
-		if (rec.branch_taken != -1) {
-			fprintf(fp, "\tbrtaken: %d", rec.branch_taken);
+			ops++;
 		}
+	}
 
-		if (rec.reg == MYREG_JMPTARGET &&
-				rec.opcode.compare(0, 5, "call ") == 0 &&
-				(rec.count != 0 || rec.high != 0)) {
-			if (rec.low == rec.high) {
-				fprintf(fp, "\ttarget: %s", get_rtn_name(rec.low, false).c_str());
-			} else {
-				fprintf(fp, "\ttarget: %s - %s",
-						get_rtn_name(rec.low, false).c_str(),
-						get_rtn_name(rec.high, false).c_str());
-			}
+	if (INS_IsPredicated(ins)) {
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_ADDRINT, &record, IARG_ADDRINT, &arecord, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+	} else {
+		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_ADDRINT, &record, IARG_ADDRINT, &arecord, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+	}
+
+	IARGLIST_Free(args);
+}
+
+static void on_finish (INT32 code, void *v)
+{
+	fprintf(logfp, "finish %d\n", code);
+	FILE *fp = fopen(tsvname, "w");
+	for(std::map<string,insrecord>::iterator ite = insmap.begin(); ite != insmap.end(); ite++) {
+		struct insrecord &rec = ite->second;
+
+		fprintf(fp, "%s\t%s\t%d", rec.category.c_str(), ite->first.c_str(), rec.count);
+
+		for (int i = 0; i < 64; i++) {
+			fprintf(fp, "\t%u", rec.bitwidth_count[i]);
 		}
 
 		fprintf(fp, "\n");
 	}
+	fprintf(fp, "\n\n");
+
+	for (std::map<ADDRINT, addrrecord>::iterator ite = addrmap.begin(); ite != addrmap.end(); ite++) {
+		fprintf(fp, PxPTR "\t%d\n", ite->first, ite->second.count);
+	}
+
 	fclose(fp);
 	fclose(logfp);
 }
@@ -260,7 +232,7 @@ int main (int argc, char *argv[])
 
 	PIN_InitSymbols();
 
-	PIN_AddFiniFunction(on_fini, 0);
+	PIN_AddFiniFunction(on_finish, 0);
 	IMG_AddInstrumentFunction(img_load, NULL);
 	IMG_AddUnloadFunction(img_unload, NULL);
 	INS_AddInstrumentFunction(instruction, NULL);
