@@ -5,7 +5,7 @@ to collect runtime information of each instruction.
 Its main purpose is gathering program execution data to inform computer architecture design choices.
 The information collected includes:
 
-* **Opcode:** This is the same as any tradition disassembler.
+* **Opcode:**
 * **The opcode's category**
 * **Instruction execution count by opcode**
 * **Instruction-operand max-bitwidth distribution by opcode**
