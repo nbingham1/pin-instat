@@ -39,7 +39,65 @@ struct addrrecord {
 	int count;
 };
 
-std::map<int, int> regreadmap;
+UINT64 next_id = 0;
+std::map<UINT64, int> memlife;
+
+struct depgraph {
+	depgraph() {}
+	~depgraph() {}
+
+	map<UINT64, UINT64> g;
+
+	void merge(const depgraph &d) {
+		map<UINT64, UINT64>::const_iterator i;
+		map<UINT64, UINT64>::iterator j;
+		for (i = d.g.begin(); i != d.g.end(); i++) {
+			j = g.find(i->first);
+			if (j != g.end())
+				j->second = max(j->second, i->second);
+			else
+				g.insert(*j);
+		}
+	}
+
+	void clear() {
+		g.clear();
+	}
+
+	void set(const depgraph &d) {
+		g = d.g;
+	}
+
+	void inc() {
+		map<UINT64, UINT64>::iterator i;
+		for (i = g.begin(); i != g.end(); i++)
+			i->second++;
+	}
+
+	void add() {
+		g.insert(pair<UINT64, UINT64>(next_id, 1));
+		next_id++;
+	}
+
+	void save() {
+		map<UINT64, UINT64>::iterator i;
+		UINT64 m = 0;
+		for (i = g.begin(); i != g.end(); i++) {
+			if (i->second > m)
+				m = i->second;
+		}
+
+		if (m > 0) {
+			map<UINT64, int>::iterator j = memlife.find(m);
+			if (j == memlife.end())
+				memlife.insert(pair<UINT64, int>(m, 1));
+			else
+				j->second++;
+		}
+	}
+};
+
+std::map<int, int> reglife;
 
 struct regrecord {
 	regrecord() {
@@ -49,18 +107,19 @@ struct regrecord {
 	~regrecord() {}
 
 	int count;
+	depgraph length;
 
 	void read() {
 		count++;
 	}
 
 	void write() {
-		if (count > 0) {
-			map<int, int>::iterator d = regreadmap.find(count);
-			if (d == regreadmap.end())
-				regreadmap[count] = 1;
+		if (count >= 0) {
+			map<int, int>::iterator j = reglife.find(count);
+			if (j == reglife.end())
+				reglife.insert(pair<int, int>(count, 1));
 			else
-				d->second++;
+				j->second++;
 		}
 		count = 0;
 	}
@@ -78,12 +137,56 @@ const char *logname = "instat.log";
 const char *insname = "instat.tsv";
 const char *addrname = "addrstat.tsv";
 const char *regname = "regstat.tsv";
+const char *memname = "memstat.tsv";
 FILE *logfp;
-std::map<string,regrecord> regmap;
+regrecord regs[16];
 std::map<ADDRINT,addrrecord> addrmap;
 std::map<string,insrecord> insmap;
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
+
+int reg_id(string reg) {
+	if (reg.size() >= 2) {
+		if (reg[0] == 'a' || reg[1] == 'a')
+			return 0;
+		else if (reg[0] == 'b' || reg[1] == 'b')
+			return 1;
+		else if (reg[0] == 'c' || reg[1] == 'c')
+			return 2;
+		else if (reg[0] == 'd' || reg[1] == 'd')
+			return 3;
+		else if (strncmp(reg.c_str(), "si", 2) == 0 ||
+						 strncmp(reg.c_str()+1, "si", 2) == 0)
+			return 4;
+		else if (strncmp(reg.c_str(), "di", 2) == 0 ||
+						 strncmp(reg.c_str()+1, "di", 2) == 0)
+			return 5;
+		else if (strncmp(reg.c_str(), "bp", 2) == 0 ||
+						 strncmp(reg.c_str()+1, "bp", 2) == 0)
+			return 6;
+		else if (strncmp(reg.c_str(), "sp", 2) == 0 ||
+						 strncmp(reg.c_str()+1, "sp", 2) == 0)
+			return 7;
+		else if (strncmp(reg.c_str(), "r8", 2) == 0)
+			return 8;
+		else if (strncmp(reg.c_str(), "r9", 2) == 0)
+			return 9;
+		else if (strncmp(reg.c_str(), "r10", 2) == 0)
+			return 10;
+		else if (strncmp(reg.c_str(), "r11", 2) == 0)
+			return 11;
+		else if (strncmp(reg.c_str(), "r12", 2) == 0)
+			return 12;
+		else if (strncmp(reg.c_str(), "r13", 2) == 0)
+			return 13;
+		else if (strncmp(reg.c_str(), "r14", 2) == 0)
+			return 14;
+		else if (strncmp(reg.c_str(), "r15", 2) == 0)
+			return 15;
+	}
+
+	return -1;
+}
 
 static void img_load (IMG img, void *v)
 {
@@ -158,6 +261,9 @@ static void on_ins (insrecord *rec, addrrecord *arec, UINT32 ops, ...)
 	regrecord *rrec = NULL;
 	bool is_mem = false;
 
+	depgraph g;
+
+	// Iterate through the source operands
 	va_start(lst, ops);
 	for (UINT32 i = 0; i < ops; i++) {
 		UINT32 type = va_arg(lst, UINT32);
@@ -169,11 +275,10 @@ static void on_ins (insrecord *rec, addrrecord *arec, UINT32 ops, ...)
 			val = va_arg(lst, ADDRINT);
 			if (is_read) {
 				bitwidth = max(bitwidth, get_bitwidth(val));
-				rrec->read();
-			}
-
-			if (is_write) {
-				rrec->write();
+				if (rrec != NULL) {
+					rrec->read();
+					g.merge(rrec->length);
+				}
 			}
 			break;
 		case iarg_imm:
@@ -181,18 +286,61 @@ static void on_ins (insrecord *rec, addrrecord *arec, UINT32 ops, ...)
 			bitwidth = max(bitwidth, get_bitwidth(val));
 			break;
 		case iarg_mem:
+			is_read = va_arg(lst, UINT32);
+			is_write = va_arg(lst, UINT32);
 			addr = va_arg(lst, ADDRINT);
 			size = va_arg(lst, ADDRINT);
-			val = memory_getvalue(addr, size);
-			bitwidth = max(bitwidth, get_bitwidth(val));
-			is_mem = true;
+			if (is_read) {
+				val = memory_getvalue(addr, size);
+				bitwidth = max(bitwidth, get_bitwidth(val));
+				g.add();
+				is_mem = true;
+			}
 			break;
-		case iarg_br:
 		default:
 			break;
 		}
 	}
 	va_end(lst);
+
+	g.inc();
+
+	// Iterate through the destination operands
+	va_start(lst, ops);
+	for (UINT32 i = 0; i < ops; i++) {
+		UINT32 type = va_arg(lst, UINT32);
+		switch (type) {
+		case iarg_reg:
+			rrec = va_arg(lst, regrecord*);
+			is_read = va_arg(lst, UINT32);
+			is_write = va_arg(lst, UINT32);
+			val = va_arg(lst, ADDRINT);
+			if (is_write) {
+				if (rrec != NULL) {
+					rrec->write();
+					rrec->length.set(g);
+				}
+			}
+			break;
+		case iarg_imm:
+			va_arg(lst, ADDRINT);
+			break;
+		case iarg_mem:
+			is_read = va_arg(lst, UINT32);
+			is_write = va_arg(lst, UINT32);
+			addr = va_arg(lst, ADDRINT);
+			size = va_arg(lst, ADDRINT);
+			if (is_write) {
+				g.save();
+				is_mem = true;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	va_end(lst);
+
 	rec->bitwidth_count[bitwidth]++;
 	rec->count++;
 	arec->count++;
@@ -218,12 +366,14 @@ static void instruction (INS ins, void *v)
 		if (INS_OperandIsReg(ins, i)) {
 			BOOL read = INS_OperandRead(ins, i);
 			BOOL write = INS_OperandWritten(ins, i);
-			string regname = REG_StringShort(INS_OperandReg(ins, i));
-			regrecord &rrecord = regmap[regname];	
+			int regname = reg_id(REG_StringShort(INS_OperandReg(ins, i)));
+			regrecord *rrecord = NULL;
+			if (regname >= 0 && regname < 16)
+				rrecord = regs + regname;	
 
 			if (REG_is_integer(INS_OperandReg(ins, i))) {
 				IARGLIST_AddArguments(args, IARG_UINT32, iarg_reg,
-					IARG_ADDRINT, &rrecord,
+					IARG_ADDRINT, rrecord,
 					IARG_UINT32, (UINT32)read,
 					IARG_UINT32, (UINT32)write,
 					IARG_REG_VALUE, INS_OperandReg(ins, i),
@@ -237,13 +387,15 @@ static void instruction (INS ins, void *v)
 	}
 
 	for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
-		if (INS_MemoryOperandIsRead(ins, i)) {
-			IARGLIST_AddArguments(args, IARG_UINT32, iarg_mem,
-				IARG_MEMORYOP_EA, i,
-				IARG_MEMORYREAD_SIZE,
-				IARG_END);
-			ops++;
-		}
+		BOOL read = INS_MemoryOperandIsRead(ins, i);
+		BOOL write = INS_MemoryOperandIsWritten(ins, i);
+		IARGLIST_AddArguments(args, IARG_UINT32, iarg_mem,
+			IARG_UINT32, (UINT32)read,
+			IARG_UINT32, (UINT32)write,
+			IARG_MEMORYOP_EA, i,
+			IARG_MEMORYREAD_SIZE,
+			IARG_END);
+		ops++;
 	}
 
 	if (INS_IsPredicated(ins)) {
@@ -279,13 +431,15 @@ static void on_finish (INT32 code, void *v)
 	fclose(fp);
 
 	fp = fopen(regname, "w");
-	for (std::map<string, regrecord>::iterator ite = regmap.begin(); ite != regmap.end(); ite++) {
-		ite->second.write();
-	}
-
-	for (std::map<int, int>::iterator i = regreadmap.begin(); i != regreadmap.end(); i++)
+	for (std::map<int, int>::iterator i = reglife.begin(); i != reglife.end(); i++)
 		fprintf(fp, "%d\t%d\n", i->first, i->second);
 	fclose(fp);
+
+	fp = fopen(memname, "w");
+	for (std::map<UINT64, int>::iterator i = memlife.begin(); i != memlife.end(); i++)
+		fprintf(fp, "%lu\t%d\n", i->first, i->second);
+	fclose(fp);
+
 	fclose(logfp);
 }
 
