@@ -11,6 +11,8 @@ else
 CONFIG_ROOT := ../Config
 endif
 include $(CONFIG_ROOT)/makefile.config
+XED_ROOT := /opt/xed-install-base-2016-02-02-lin-x86-64
+APP_LIB_XED := -lxed
 include makefile.rules
 include $(TOOLS_ROOT)/Config/makefile.default.rules
 

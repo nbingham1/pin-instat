@@ -2,7 +2,7 @@
 
 counts = dict()
 
-with open("astat.tsv", "r") as fptr:
+with open("instruction.tsv", "r") as fptr:
 	for line in fptr:
 		splt = line.strip().split('\t')
 		addr = splt[0].lower()
@@ -13,6 +13,6 @@ with open("astat.tsv", "r") as fptr:
 
 		counts[count] += 1
 		
-with open("acount.tsv", "w") as fptr:
+with open("block.tsv", "w") as fptr:
 	for key,count in counts.items():
 		print >>fptr, key + "\t" + str(count)
