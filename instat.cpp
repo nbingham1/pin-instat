@@ -48,18 +48,26 @@ struct oprecord {
 
 struct insrecord {
 	insrecord() {
-		count = 0;
+		total = 0;
 	}
 
-	UINT64 count;
-	map<UINT64, UINT64> read_count;
+	UINT64 total;
+	map<UINT64, pair<UINT64, UINT64> > count;
 
 	void read(UINT64 addr) {
-		map<UINT64, UINT64>::iterator i = read_count.find(addr);
-		if (i == read_count.end())
-			read_count.insert(pair<UINT64, UINT64>(addr, 1));
+		map<UINT64, pair<UINT64, UINT64> >::iterator i = count.find(addr);
+		if (i == count.end())
+			count.insert(pair<UINT64, pair<UINT64, UINT64> >(addr, pair<UINT64, UINT64>(1, 0)));
 		else
-			i->second++;
+			i->second.first++;
+	}
+	
+	void write(UINT64 addr) {
+		map<UINT64, pair<UINT64, UINT64> >::iterator i = count.find(addr);
+		if (i == count.end())
+			count.insert(pair<UINT64, pair<UINT64, UINT64> >(addr, pair<UINT64, UINT64>(0, 1)));
+		else
+			i->second.second++;
 	}
 };
 
@@ -770,9 +778,10 @@ static void on_ins (CONTEXT *ctx, oprecord *opcode, insrecord *instr, UINT32 ops
 		} else if (type == iarg_mem) {
 			va_arg(lst, UINT32);
 			UINT32 is_write = va_arg(lst, UINT32);
-			va_arg(lst, ADDRINT);
+			ADDRINT addr = va_arg(lst, ADDRINT);
 			va_arg(lst, ADDRINT);
 			if (is_write) {
+				instr->write(addr);
 				is_mem = true;
 			}
 		}
@@ -793,7 +802,7 @@ static void on_ins (CONTEXT *ctx, oprecord *opcode, insrecord *instr, UINT32 ops
 
 	ins_count++;
 	opcode->count++;
-	instr->count++;
+	instr->total++;
 	if (is_mem)
 		opcode->mem_count++;
 }
@@ -934,17 +943,10 @@ static void on_finish (INT32 code, void *v)
 	vector<pair<UINT64, UINT64> > addr;
 	for (std::map<ADDRINT, insrecord>::iterator ite = insmap.begin(); ite != insmap.end(); ite++) {
 		insrecord &rec = ite->second;
-		UINT64 total = 0;
 
-		for (std::map<UINT64, UINT64>::iterator i = rec.read_count.begin(); i != rec.read_count.end(); i++) {
-			total += i->second;
-			addr.push_back(pair<UINT64, UINT64>(i->second, i->first));
-		}
-		std::sort(addr.rbegin(), addr.rend());
-
-		fprintf(fp, "%lu\t%lu\t%lu", ite->first, ite->second.count, total);
-		for (int i = 0; i < min((int)addr.size(), 32); i++) {
-			fprintf(fp, "\t%lu,%lu", addr[i].second, addr[i].first);
+		fprintf(fp, "%lu\t%lu", ite->first, ite->second.total);
+		for (map<UINT64, pair<UINT64, UINT64> >::iterator i = rec.count.begin(); i != rec.count.end(); i++) {
+			fprintf(fp, "\t%lu,%lu,%lu", i->first, i->second.first, i->second.second);
 		}
 
 		fprintf(fp, "\n");

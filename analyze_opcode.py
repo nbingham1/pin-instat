@@ -1,14 +1,14 @@
 #!/usr/bin/python
 
 categories = {
-	'jump': [
+	'Control Jump': [
 		'jz', 'jp', 'js', 'jb',
 		'jnle', 'jns', 'jl', 'jnp',
 		'jnz', 'jnb', 'jnl', 'jmp',
 		'jle', 'jbe', 'jnbe', 
 	],
 
-	'control': [		
+	'Control Other': [		
 		'call_near', 'syscall', 'ret_near',	# call/ret
 
 		'fwait', 'fnclex', # floating point exceptions
@@ -19,7 +19,7 @@ categories = {
 		'lea', # load effective address 
 	],
 
-	'routing_real': [
+	'Routing Real': [
 		'movapd', 'movhpd', 'movlpd', 'vmovapd', 'vmovsd', 'movsd_xmm', # double precision move
 		'movss', 'movaps', 'movups', # single precision move
 		'fxch', # swap
@@ -31,7 +31,7 @@ categories = {
 		'movmskpd', # move mask
 	],
 
-	'routing_integer': [
+	'Routing Integer': [
 		'rep_movsd', 'rep_movsq', # repeated move
 		'rep_stosb', 'rep_stosd', 'rep_stosq', # repeated store 
 		'cmovs', 'cmovz', 'cmovl', 'cmovb', 'cmovbe', 'cmovle', 'cmovnl', 'cmovnb', 'cmovnz', 'cmovns', 'cmovnbe', 'cmovnle', # conditional move
@@ -49,7 +49,7 @@ categories = {
 		'push', 'pop', # push to and pop from the stack 
 	],
 
-	'arith_real': [
+	'Arithmetic Real': [
 		'minss', 'minsd', # min
 		'maxss', 'maxsd', # max 
 		'cmpss', 'vcmpsd', 'cmpsd_xmm',
@@ -68,7 +68,7 @@ categories = {
 		'fchs', # neg
 	],
 
-	'arith_integer': [
+	'Arithmetic Integer': [
 		'pminub', # min/max
 		'cmp', 
 		'vpcmpistri', 'pcmpistri', # compare strings 
@@ -94,6 +94,15 @@ categories = {
 		'inc', 'dec', 'dec_lock', # increment and decrement
 		'not', 'neg', # not and neg
 	]
+}
+
+cat_col = {
+	'Arithmetic Integer': 0,
+	'Arithmetic Real' : 1,
+	'Routing Integer': 0,
+	'Routing Real': 1,
+	'Control Jump': 2,
+	'Control Other': 3
 }
 
 def ins_type(opcode):
@@ -150,28 +159,95 @@ with open("opcode.tsv", "r") as fptr:
 			iwidths[opcode] = [sum(x) for x in zip(iwidths[opcode], width)]
 
 with open("catcount.tsv", "w") as fptr:
-	for key,count in counts.items():
-		print >>fptr, "{key}\t{count}\t{mem}".format(key=key,count=count[0],mem=count[1])
+	print >>fptr, "Category\tInteger\tInteger (Mem)\tReal\tReal (Mem)\tJump\tJump (Mem)\tOther\tOther (Mem)"
+
+	for row in ["Arithmetic", "Routing", "Control"]:
+		rowstr = row
+		if row != "Control":
+			count = counts[row + ' Integer']
+			nomem = float(count[0]-count[1])/float(total)
+			mem = float(count[1])/float(total)
+			rowstr += '\t' + str(nomem) + '\t' + str(mem)
+
+			count = counts[row + ' Real']
+			nomem = float(count[0]-count[1])/float(total)
+			mem = float(count[1])/float(total)
+			rowstr += '\t' + str(nomem) + '\t' + str(mem)
+		else:
+			rowstr += '\t\t\t\t'
+			count = counts[row + ' Jump']
+			nomem = float(count[0]-count[1])/float(total)
+			mem = float(count[1])/float(total)
+			rowstr += '\t' + str(nomem) + '\t' + str(mem)
+
+			count = counts[row + ' Other']
+			nomem = float(count[0]-count[1])/float(total)
+			mem = float(count[1])/float(total)
+			rowstr += '\t' + str(nomem) + '\t' + str(mem)
+		print >>fptr, rowstr
 
 with open("incount.tsv", "w") as fptr:
-	for key,count in icounts.items():
-		print >>fptr, "{key}\t{category}\t{count}\t{mem}".format(key=key,category=count[0],count=count[1],mem=count[2])
+	print >>fptr, "Instruction\tInteger\tInteger (Mem)\tReal\tReal (Mem)\tJump\tJump (Mem)\tOther\tOther (Mem)"
+	for key,count in sorted(icounts.items(), reverse=True, key=lambda x: x[1][1]):
+		nomem = float(count[1]-count[2])/float(total)
+		mem = float(count[2])/float(total)
 
-with open("catwidth.tsv", "w") as fptr:
-	for key, width in widths.items():
-		print >>fptr, key + "\t" + "\t".join((str(w) for w in width))
+		print >>fptr, "{key}{col}\t{nomem}\t{mem}".format(key=key, col='\t\t'*cat_col[count[0]], nomem=nomem, mem=mem)
 
-with open("inwidth.tsv", "w") as fptr:
-	for key, width in iwidths.items():
-		print >>fptr, key + "\t" + "\t".join((str(w) for w in width))
+with open("width.tsv", "w") as fptr:
+	print >>fptr, "Integer\t\tLSB Significand\t\tMSB Significand\t\tExponent"
+	print >>fptr, "Arithmetic\tRouting\t"*4
+	lengths = [65, 53, 53, 17]
+	for i in range(0, max(lengths)):
+		width = widths["Arithmetic Integer"]
+		print >>fptr, str(width[i]),
+		width = widths["Routing Integer"]
+		print >>fptr, "\t" + str(width[i]),
+		if i < 53:
+			width = widths["Arithmetic Real"]
+			print >>fptr, "\t" + str(width[65+i]),
+			width = widths["Routing Real"]
+			print >>fptr, "\t" + str(width[65+i]),
+		else:
+			print >>fptr, "\t\t",
+		if i < 53:
+			width = widths["Arithmetic Real"]
+			print >>fptr, "\t" + str(width[65+53+i]),
+			width = widths["Routing Real"]
+			print >>fptr, "\t" + str(width[65+53+i]),
+		else:
+			print >>fptr, "\t\t",
+		if i < 17:
+			width = widths["Arithmetic Real"]
+			print >>fptr, "\t" + str(width[65+53+53+i]),
+			width = widths["Routing Real"]
+			print >>fptr, "\t" + str(width[65+53+53+i]),
+		else:
+			print >>fptr, "\t\t",
+		print >>fptr, ""
+
+with open("integer_widths.tsv", "w") as fptr:
+	print >>fptr, "\t".join(key for key,width in iwidths.items())
+	for i in range(0, 65):
+		print >>fptr, "\t".join(str(width[i]) for key,width in iwidths.items())
+
+with open("significand_lsb_widths.tsv", "w") as fptr:
+	print >>fptr, "\t".join(key for key,width in iwidths.items())
+	for i in range(65, 65+53):
+		print >>fptr, "\t".join(str(width[i]) for key,width in iwidths.items())
+
+with open("significand_msb_widths.tsv", "w") as fptr:
+	print >>fptr, "\t".join(key for key,width in iwidths.items())
+	for i in range(65+53, 65+53+53):
+		print >>fptr, "\t".join(str(width[i]) for key,width in iwidths.items())
+
+with open("exponent_widths.tsv", "w") as fptr:
+	print >>fptr, "\t".join(key for key,width in iwidths.items())
+	for i in range(65+53+53, 65+53+53+17):
+		print >>fptr, "\t".join(str(width[i]) for key,width in iwidths.items())
 
 with open("mem.tsv", "w") as fptr:
 	print >>fptr, "{total}\t{mems}".format(total=total,mems=mems)
 
-with open("routingwidth.tsv", "w") as fptr:
-	for key, width in iwidths.items():
-		if key in categories["routing_integer"]:
-			print >>fptr, key + "\t" + "\t".join((str(w) for w in width))
-
-for key, value in categories.iteritems():
-	print key + '\t' + '\t'.join(value)
+#for key, value in categories.iteritems():
+#	print key + '\t' + '\t'.join(value)
