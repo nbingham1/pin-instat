@@ -4,6 +4,9 @@
 #include <string>
 #include <algorithm>
 #include <locale>
+#include <csignal>
+
+#include "table.h"
 
 extern "C" {
 #include <xed-interface.h>
@@ -1016,6 +1019,12 @@ static void on_finish (INT32 code, void *v)
 	fclose(logfp);
 }
 
+bool handle_signal(THREADID tid, INT32 sig, CONTEXT *ctxt, BOOL hasHandler, const EXCEPTION_INFO *pExceptInfo, VOID *v)
+{	
+	exit(sig);
+	return true;
+}
+
 int main (int argc, char *argv[])
 {
 	if(PIN_Init(argc, argv)) {
@@ -1029,6 +1038,7 @@ int main (int argc, char *argv[])
 
 	PIN_InitSymbols();
 
+	PIN_InterceptSignal(SIGTERM, handle_signal, NULL);
 	PIN_AddFiniFunction(on_finish, 0);
 	IMG_AddInstrumentFunction(img_load, NULL);
 	IMG_AddUnloadFunction(img_unload, NULL);

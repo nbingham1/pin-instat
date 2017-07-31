@@ -26,7 +26,7 @@ categories = {
 		'fnstcw', # store fpu control word
 		'fst', 'fstp', 'fld', 'fldz', 'fld1', 'fldcw', # load/store floating point value
 		'cdq', 'cdqe', 'cwde', 'cqo', 'fild', 'cvtss2sd', 'vcvtsi2sd', 'cvtpd2ps', 'cvttss2si', 'cvttsd2si', 'vcvttsd2si', 'cvtsi2ss', 'cvtsd2ss', 'cvtsi2sd', # floating point/integer conversion
-		'unpcklpd', # unpack and interleave
+		'vunpcklpd', 'unpcklpd', # unpack and interleave
 		'shufps', # shuffle 
 		'movmskpd', # move mask
 	],
