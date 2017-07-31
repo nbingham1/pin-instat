@@ -40,7 +40,7 @@ struct oprecord {
 
 	~oprecord() {}
 
-	string category;
+	int category;
 	UINT64 int_bitwidth[65];
 	UINT64 sig_lbitwidth[53];
 	UINT64 sig_mbitwidth[53];
@@ -49,29 +49,39 @@ struct oprecord {
 	UINT64 mem_count;
 };
 
-struct insrecord {
-	insrecord() {
-		total = 0;
+struct memory_operation_t {
+	memory_operation_t()
+	{
+		instr_addr = 0;
+		mem_addr = 0;
+		read_count = 0;
+		write_count = 0;
 	}
 
-	UINT64 total;
-	map<UINT64, pair<UINT64, UINT64> > count;
-
-	void read(UINT64 addr) {
-		map<UINT64, pair<UINT64, UINT64> >::iterator i = count.find(addr);
-		if (i == count.end())
-			count.insert(pair<UINT64, pair<UINT64, UINT64> >(addr, pair<UINT64, UINT64>(1, 0)));
-		else
-			i->second.first++;
+	memory_operation_t(UINT64 instr, UINT64 mem)
+	{
+		instr_addr = instr;
+		mem_addr = mem;
+		read_count = 0;
+		write_count = 0;
 	}
 	
-	void write(UINT64 addr) {
-		map<UINT64, pair<UINT64, UINT64> >::iterator i = count.find(addr);
-		if (i == count.end())
-			count.insert(pair<UINT64, pair<UINT64, UINT64> >(addr, pair<UINT64, UINT64>(0, 1)));
-		else
-			i->second.second++;
+	~memory_operation_t() {}
+
+	UINT64 instr_addr;
+	UINT64 mem_addr;
+	UINT64 read_count;
+	UINT64 write_count;
+};
+
+struct instruction_t {
+	instruction_t() {
+		execution_count = 0;
 	}
+
+	~instruction_t() {}
+
+	UINT64 execution_count;
 };
 
 struct memtype {
@@ -140,16 +150,12 @@ enum
 };
 
 const char *logname = "pin.log";
-const char *opname = "opcode.tsv";
-const char *insname = "instruction.tsv";
-const char *fanoutname = "fanout.tsv";
-const char *agename = "age.tsv";
 FILE *logfp;
 
-memrecord regs[84];
-memtype reg_types[7];
-std::map<ADDRINT,insrecord> insmap;
-std::map<string,oprecord> opmap;
+table<memrecord> regs("regs.tbl");			// indexed by register id as obtained by reg_id()
+table<memtype> types("types.tbl");			// indexed by register type as obtained by reg_type()
+table<insrecord> instrs("instrs.tbl");	// indexed by instruction address as obtained by INS_Address()
+table<oprecord> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
 
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
@@ -818,11 +824,11 @@ static void instruction (INS ins, void *v)
 	if (opcode.empty())
 		return;
 
-	oprecord &record = opmap[opcode];
-	insrecord &arecord = insmap[address];
+	oprecord &record = opcodes[opcode];
+	insrecord &arecord = instrs[address];
 	IARGLIST args = IARGLIST_Alloc();
 
-	record.category = CATEGORY_StringShort(INS_Category(ins));
+	record.category = INS_Category(ins);
 
 	UINT32 ops = 0;
 	for (UINT32 i = 0; i < INS_OperandCount(ins); i++) {
@@ -914,10 +920,10 @@ static void on_finish (INT32 code, void *v)
 	fprintf(fp, "\n");
 
 	// Data
-	for (std::map<string,oprecord>::iterator ite = opmap.begin(); ite != opmap.end(); ite++) {
+	for (std::map<string,oprecord>::iterator ite = opcodes.begin(); ite != opcodes.end(); ite++) {
 		oprecord &rec = ite->second;
 
-		fprintf(fp, "%s\t%s\t%lu\t%lu", rec.category.c_str(), ite->first.c_str(), rec.count, rec.mem_count);
+		fprintf(fp, "%d\t%s\t%lu\t%lu", rec.category, ite->first.c_str(), rec.count, rec.mem_count);
 
 		for (int i = 0; i < 65; i++) {
 			fprintf(fp, "\t%lu", rec.int_bitwidth[i]);
@@ -944,7 +950,7 @@ static void on_finish (INT32 code, void *v)
 	fprintf(fp, "Address\tExecution Count\tTotal Read Count\tIndividual Read Counts\n");
 
 	vector<pair<UINT64, UINT64> > addr;
-	for (std::map<ADDRINT, insrecord>::iterator ite = insmap.begin(); ite != insmap.end(); ite++) {
+	for (std::map<ADDRINT, insrecord>::iterator ite = instrs.begin(); ite != instrs.end(); ite++) {
 		insrecord &rec = ite->second;
 
 		fprintf(fp, "%lu\t%lu", ite->first, ite->second.total);

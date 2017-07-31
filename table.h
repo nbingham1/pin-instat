@@ -8,6 +8,12 @@ struct table
 		fptr = NULL;
 	}
 
+	table(char *filename)
+	{
+		fptr = NULL;
+		open(filename);
+	}
+
 	~table()
 	{
 		close();
@@ -15,7 +21,7 @@ struct table
 
 	FILE *fptr;
 
-	bool open(char *filename, int length)
+	bool open(char *filename)
 	{
 		if (fptr != NULL)
 			return false;
@@ -42,6 +48,23 @@ struct table
 		fseek(fptr, index*sizeof(entry), SEEK_SET);
 		fread(&result, sizeof(entry), 1, fptr);
 		return result;
+	}
+
+	void insert(int index, const entry &e)
+	{
+		entry r[2];
+		int i = 0;
+
+		r[1-i] = e;
+
+		fseek(fptr, index*sizeof(entry), SEEK_SET);
+		while (fread(r+i, sizeof(entry), 1, fptr) > 0)
+		{
+			fseek(fptr, -sizeof(entry), SEEK_CUR);
+			fwrite(r+(1-i), sizeof(entry), 1, fptr);
+			i = 1-i;
+		}
+		fwrite(r+(1-i), sizeof(entry, 1, fptr);
 	}
 
 	void write(int index, const entry &e)
