@@ -7,6 +7,11 @@
 #include <csignal>
 
 #include "table.h"
+#include "cached_map.h"
+#include "cached_table.h"
+
+#include "array.h"
+#include "math.h"
 
 extern "C" {
 #include <xed-interface.h>
@@ -21,144 +26,6 @@ extern "C" {
 #  define PxPTR "%lx"
 # endif
 #endif
-
-UINT64 ins_count = 0;
-
-struct oprecord {
-	oprecord() {
-		count = 0;
-		mem_count = 0;
-		for (int i = 0; i < 65; i++)
-			int_bitwidth[i] = 0;
-		for (int i = 0; i < 53; i++) {
-			sig_lbitwidth[i] = 0;
-			sig_mbitwidth[i] = 0;
-		}
-		for (int i = 0; i < 17; i++)
-			exp_bitwidth[i] = 0;
-	}
-
-	~oprecord() {}
-
-	int category;
-	UINT64 int_bitwidth[65];
-	UINT64 sig_lbitwidth[53];
-	UINT64 sig_mbitwidth[53];
-	UINT64 exp_bitwidth[17];
-	UINT64 count;
-	UINT64 mem_count;
-};
-
-struct memory_operation_t {
-	memory_operation_t()
-	{
-		instr_addr = 0;
-		mem_addr = 0;
-		read_count = 0;
-		write_count = 0;
-	}
-
-	memory_operation_t(UINT64 instr, UINT64 mem)
-	{
-		instr_addr = instr;
-		mem_addr = mem;
-		read_count = 0;
-		write_count = 0;
-	}
-	
-	~memory_operation_t() {}
-
-	UINT64 instr_addr;
-	UINT64 mem_addr;
-	UINT64 read_count;
-	UINT64 write_count;
-};
-
-struct instruction_t {
-	instruction_t() {
-		execution_count = 0;
-	}
-
-	~instruction_t() {}
-
-	UINT64 execution_count;
-};
-
-struct memtype {
-	memtype() {}
-	~memtype() {}
-
-	map<UINT64, UINT64> fanout_distribution;
-	map<UINT64, UINT64> age_distribution;
-
-	void write(int fanout, int age) {
-		map<UINT64, UINT64>::iterator j;
-
-		j = fanout_distribution.find(fanout);
-		if (j == fanout_distribution.end())
-			fanout_distribution.insert(pair<UINT64, UINT64>(fanout, 1));
-		else
-			j->second++;
-
-		j = age_distribution.find(age);
-		if (j == age_distribution.end())
-			age_distribution.insert(pair<UINT64, UINT64>(age, 1));
-		else
-			j->second++;
-	}
-};
-
-struct memrecord {
-	memrecord() {
-		type = NULL;
-		read_count = 0;
-		write_count = 0;
-		last_write_rd = 0;
-		last_write_ins = 0;
-	}
-
-	~memrecord() {}
-
-	memtype *type;
-	UINT64 read_count;
-	UINT64 write_count;
-	UINT64 last_write_rd;
-	UINT64 last_write_ins;
-
-	void read() {
-		read_count++;
-	}
-
-	void write() {
-		int fanout = read_count - last_write_rd;
-		int age = ins_count - last_write_ins;
-
-		if (type)
-			type->write(fanout, age);
-		
-		write_count++;
-		last_write_rd = read_count;
-		last_write_ins = ins_count;
-	}
-};
-
-enum
-{
-	iarg_reg = 0,
-	iarg_mem = 1,
-	iarg_imm = 2
-};
-
-const char *logname = "pin.log";
-FILE *logfp;
-
-table<memrecord> regs("regs.tbl");			// indexed by register id as obtained by reg_id()
-table<memtype> types("types.tbl");			// indexed by register type as obtained by reg_type()
-table<insrecord> instrs("instrs.tbl");	// indexed by instruction address as obtained by INS_Address()
-table<oprecord> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
-
-std::map<ADDRINT,string> symbols;
-std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
 
 int reg_id(REG reg) {
 	switch (reg) {
@@ -296,7 +163,7 @@ int reg_id(REG reg) {
 		return 38;
 	case REG_K3:
 		return 39;
-	case REG_K4:
+	 case REG_K4:
 		return 40;
 	case REG_K5:
 		return 41;
@@ -477,22 +344,23 @@ int reg_id(REG reg) {
 	}
 }
 
-int reg_type(int id) {
-	if (id < 0)
+int reg_class(int register_id)
+{
+	if (register_id < 0)
 		return -1;
-	else if (id < 16)
+	else if (register_id < 16)
 		return 0;
-	else if (id < 23)
+	else if (register_id < 23)
 		return 1;
-	else if (id < 28)
+	else if (register_id < 28)
 		return 2;
-	else if (id < 36)
+	else if (register_id < 36)
 		return 3;
-	else if (id < 44)
+	else if (register_id < 44)
 		return 4;
-	else if (id < 52)
+	else if (register_id < 52)
 		return 5;
-	else if (id < 84)
+	else if (register_id < 84)
 		return 6;
 	else
 		return -1;
@@ -502,8 +370,276 @@ int reg_width(REG reg) {
 	return _regWidthToBitWidth[REG_Width(reg)];
 }
 
+struct opcode_t {
+	opcode_t() {
+		category = -1;
+		count = 0;
+		mem_count = 0;
+		for (int i = 0; i < 65; i++)
+			int_bitwidth[i] = 0;
+		for (int i = 0; i < 53; i++) {
+			sig_lbitwidth[i] = 0;
+			sig_mbitwidth[i] = 0;
+		}
+		for (int i = 0; i < 17; i++)
+			exp_bitwidth[i] = 0;
+	}
+
+	opcode_t(int category) {
+		this->category = category;
+		count = 0;
+		mem_count = 0;
+		for (int i = 0; i < 65; i++)
+			int_bitwidth[i] = 0;
+		for (int i = 0; i < 53; i++) {
+			sig_lbitwidth[i] = 0;
+			sig_mbitwidth[i] = 0;
+		}
+		for (int i = 0; i < 17; i++)
+			exp_bitwidth[i] = 0;
+	}
+
+	~opcode_t() {}
+
+	int category;
+	UINT64 count;
+	UINT64 mem_count;
+	UINT64 int_bitwidth[65];
+	UINT64 sig_lbitwidth[53];
+	UINT64 sig_mbitwidth[53];
+	UINT64 exp_bitwidth[17];
+};
+
+struct memory_key_t {
+	memory_key_t() { instr = 0; mem = 0; }
+	memory_key_t(UINT64 instr, UINT64 mem)
+	{
+		this->instr = instr;
+		this->mem = mem;
+	}
+	~memory_key_t() {}
+
+	UINT64 instr, mem;
+};
+
+struct memory_value_t {
+	memory_value_t() { read = 0; write = 0; }
+	memory_value_t(UINT64 read, UINT64 write) { this->read = read; this->write = write; }
+	~memory_value_t() {}
+
+	UINT64 read, write;
+};
+
+bool operator<(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr < k1.instr ||
+				(k0.instr == k1.instr && k0.mem < k1.mem);
+}
+
+bool operator>(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr > k1.instr ||
+				(k0.instr == k1.instr && k0.mem > k1.mem);
+}
+
+bool operator<=(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr < k1.instr ||
+				(k0.instr == k1.instr && k0.mem <= k1.mem);
+}
+
+bool operator>=(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr > k1.instr ||
+				(k0.instr == k1.instr && k0.mem >= k1.mem);
+}
+
+bool operator==(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr == k1.instr && k0.mem == k1.mem;
+}
+
+bool operator!=(memory_key_t k0, memory_key_t k1)
+{
+	return k0.instr != k1.instr || k0.mem != k1.mem;
+}
+
+UINT64 update(UINT64 a, UINT64 b)
+{
+	return a+b;
+}
+
+memory_value_t update_mem(memory_value_t a, memory_value_t b)
+{
+	a.read += b.read;
+	a.write += b.write;
+	return a;
+}
+
+struct instruction_record_t {
+	instruction_record_t() { total = 0; }
+	instruction_record_t(const char *mem, const char *exe) : memory(mem), execution(exe) { total = 0; }
+	~instruction_record_t() {}
+
+	cached_map<memory_key_t, memory_value_t, 5000, &update_mem> memory;
+	// indexed by instruction address as obtained by INS_Address()
+	cached_map<UINT64, UINT64, 5000, &update> execution;	
+	UINT64 total;
+
+	void finish()
+	{
+		memory.save();
+		execution.save();
+	}
+
+	void exec(UINT64 instr)
+	{
+		total++;
+		UINT64 *count = execution.get(instr);
+		(*count)++;
+	}
+
+	void read(UINT64 instr, UINT64 mem)
+	{
+		memory_value_t *value = memory.get(memory_key_t(instr, mem));
+		value->read++;
+	}
+
+	void write(UINT64 instr, UINT64 mem)
+	{
+		memory_value_t *value = memory.get(memory_key_t(instr, mem));
+		value->write++;
+	}
+};
+
+struct register_count_t {
+	register_count_t()
+	{
+		for (int i = 0; i < 7; i++)
+			count[i] = 0;
+	}
+
+	~register_count_t() {}
+
+	UINT64 count[7];
+};
+
+bool operator==(register_count_t r0, register_count_t r1)
+{
+	for (int i = 0; i < 7; i++)
+		if (r0.count[i] != r1.count[i])
+			return false;
+	return true;
+}
+
+bool operator!=(register_count_t r0, register_count_t r1)
+{
+	for (int i = 0; i < 7; i++)
+		if (r0.count[i] != r1.count[i])
+			return true;
+	return false;
+}
+
+struct register_t {
+	register_t() {
+		reads = 0;
+		writes = 0;
+		last_read = 0;
+		last_instr = 0;
+	}
+
+	~register_t() {}
+
+	UINT64 reads;
+	UINT64 writes;
+	UINT64 last_read;
+	UINT64 last_instr;
+};
+
+struct register_record_t {
+	register_record_t() {}
+	register_record_t(const char *fanout, const char *age) : register_fanout(fanout), register_age(age) {}
+	~register_record_t() {}
+
+	cached_table<register_count_t, 1000> register_fanout;
+	cached_table<register_count_t, 1000> register_age;
+	register_t regs[84];
+
+	void finish()
+	{
+		register_fanout.finish();
+		register_age.finish();
+	}
+
+	void read(int register_id) {
+		regs[register_id].reads++;
+	}
+
+	void write(int register_id, UINT64 instr_count) {
+		int register_class = reg_class(register_id);
+		if (register_class >= 0)
+		{
+			int fanout = regs[register_id].reads - regs[register_id].last_read;
+			int age = instr_count - regs[register_id].last_instr;
+
+			register_count_t count;
+
+			// We don't need a several-Gb table to store
+			// values we don't care about.
+			if (fanout > 999)
+				fanout = 999;
+			if (age > 999)
+				age = 999;
+
+			file::table<register_count_t>::iterator i;
+
+			register_count_t *temp = register_fanout.get(fanout);
+			temp->count[register_class]++;
+
+			temp = register_age.get(age);
+			temp->count[register_class]++;
+
+			regs[register_id].writes++;
+			regs[register_id].last_read = regs[register_id].reads;
+			regs[register_id].last_instr = instr_count;
+		}
+	}
+};
+
+enum
+{
+	iarg_reg = 0,
+	iarg_mem = 1,
+	iarg_imm = 2
+};
+
+opcode_t update_opcode(opcode_t a, opcode_t b)
+{
+	a.count += b.count;
+	a.mem_count += b.mem_count;
+	for (int i = 0; i < 65; i++)
+		a.int_bitwidth[i] += b.int_bitwidth[i];
+	for (int i = 0; i < 53; i++) {
+		a.sig_lbitwidth[i] += b.sig_lbitwidth[i];
+		a.sig_mbitwidth[i] += b.sig_mbitwidth[i];
+	}
+	for (int i = 0; i < 17; i++)
+		a.exp_bitwidth[i] += b.exp_bitwidth[i];
+	return a;
+}
+
+const char *logname = "pin.log";
+FILE *logfp;
+
+register_record_t registers("fanout.tbl", "age.tbl");
+instruction_record_t instructions("memory.tbl", "instrs.tbl");
+cached_map<uint64_t, opcode_t, 1000, &update_opcode> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
+
+std::map<ADDRINT,string> symbols;
+std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
+
 static void img_load (IMG img, void *v) {
-	fprintf(logfp, "load %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
+	printf("load %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
 			IMG_Name(img).c_str(),
 			IMG_LoadOffset(img), IMG_LowAddress(img), IMG_HighAddress(img),
 			IMG_StartAddress(img), IMG_SizeMapped(img));
@@ -519,7 +655,7 @@ static void img_load (IMG img, void *v) {
 
 	for (SEC sec = IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec)) {
 		for(RTN rtn = SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn)) {
-			fprintf(logfp, PxPTR " %s\n", RTN_Address(rtn), RTN_Name(rtn).c_str());
+			printf(PxPTR " %s\n", RTN_Address(rtn), RTN_Name(rtn).c_str());
 			symbols[RTN_Address(rtn)] = RTN_Name(rtn);
 		}
 	}
@@ -527,7 +663,7 @@ static void img_load (IMG img, void *v) {
 
 static void img_unload (IMG img, void *v)
 {
-	fprintf(logfp, "unload %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
+	printf("unload %s off=" PxPTR " low=" PxPTR " high=" PxPTR " start=" PxPTR " size=" PxPTR "\n",
 			IMG_Name(img).c_str(),
 			IMG_LoadOffset(img), IMG_LowAddress(img), IMG_HighAddress(img),
 			IMG_StartAddress(img), IMG_SizeMapped(img));
@@ -681,154 +817,185 @@ ADDRINT memory_getvalue(ADDRINT addr, ADDRINT size)
 	return val;
 }
 
-static void on_ins (CONTEXT *ctx, oprecord *opcode, insrecord *instr, UINT32 ops, ...)
+static void on_ins (CONTEXT *ctx, UINT32 opcode, ADDRINT instr_addr, UINT32 ops, ...)
 {
-	va_list lst;
-	int int_bitwidth[64];
-	int sig_lbitwidth[32];
-	int sig_mbitwidth[32];
-	int exp_bitwidth[32];
-	for (int i = 0; i < 32; i++)
+	static array<int> write_list;
+	static array<ADDRINT> mem_list;
+	if ((instructions.total & 1023) == 0)
 	{
-		int_bitwidth[i] = -1;
-		int_bitwidth[i+32] = -1;
-		sig_lbitwidth[i] = -1;
-		sig_mbitwidth[i] = -1;
-		exp_bitwidth[i] = -1;
+		printf("\r%lu Instructions %d/%d Opcodes", instructions.total, opcodes.cache.size(), opcodes.store.size());
+		fflush(stdout);
 	}
 
-	bool is_mem = false;
-	UINT32 max_count = 1;
+	static int int_bitwidth[64] = {
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1};
+	static int sig_lbitwidth[32] = {
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1};
+	static int sig_mbitwidth[32] = {
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1};
+	static int exp_bitwidth[32] = {
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1,
+		-1, -1, -1, -1, -1, -1, -1, -1};
 
-	UINT8 rval[64];
+	bool is_mem = false;
+
+	static UINT8 rval[64];
 
 	// Iterate through the source operands
+	va_list lst;
 	va_start(lst, ops);
 	for (UINT32 i = 0; i < ops; i++) {
 		UINT32 type = va_arg(lst, UINT32);
-		if (type == iarg_reg) {
-			int regid = va_arg(lst, INT32);
-			UINT32 is_read = va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-			REG reg = (REG)va_arg(lst, UINT32);
-			UINT32 dcount = va_arg(lst, UINT32);
-			UINT32 dwidth = va_arg(lst, UINT32);
-			UINT32 dtype = va_arg(lst, UINT32);
+		UINT32 is_read, is_write;
+		UINT32 dcount, dwidth, dtype;
+		REG reg;
+		int regid;
+		UINT8 *loc;
+		int off;
+		ADDRINT imm;
+		INT64 mem;
+		UINT32 dsigned;
+		ADDRINT mem_addr, mem_size;
+
+		switch (type) {
+		case iarg_reg:
+			regid = va_arg(lst, INT32);
+			is_read = va_arg(lst, UINT32);
+			is_write = va_arg(lst, UINT32);
+			reg = (REG)va_arg(lst, UINT32);
+			dcount = va_arg(lst, UINT32);
+			dwidth = va_arg(lst, UINT32);
+			dtype = va_arg(lst, UINT32);
 
 			if (is_read) {
 				PIN_GetContextRegval(ctx, reg, rval);
-				if (dcount > max_count)
-					max_count = dcount;
-
-				for (UINT32 j = 0; j < dcount; j++) {
-					if (dtype == XED_OPERAND_ELEMENT_TYPE_UINT) {
-						UINT64 val = *(UINT64*)(rval + j*(dwidth>>3));
-						int_bitwidth[j] = max(int_bitwidth[j], get_uint_bitwidth(val));
-					} else if (dtype == XED_OPERAND_ELEMENT_TYPE_INT) {
-						INT64 val = *(INT64*)(rval + j*(dwidth>>3));
-						int_bitwidth[j] = max(int_bitwidth[j], get_int_bitwidth(val)); 
-					} else { // floating point
-						sig_lbitwidth[j] = max(sig_lbitwidth[j], get_sig_lbitwidth(rval + j*(dwidth>>3), dtype));
-						sig_mbitwidth[j] = max(sig_mbitwidth[j], get_sig_mbitwidth(rval + j*(dwidth>>3), dtype));
-						exp_bitwidth[j] = max(exp_bitwidth[j], get_exp_bitwidth(rval + j*(dwidth>>3), dtype));
+				
+				loc = rval;
+				off = dwidth>>3;
+				switch (dtype) {
+				case XED_OPERAND_ELEMENT_TYPE_UINT:
+					for (UINT32 j = 0; j < dcount; j++, loc += off) {
+						int_bitwidth[j] = std::max((int)int_bitwidth[j], get_uint_bitwidth(*(UINT64*)loc));
 					}
+					break;
+				case XED_OPERAND_ELEMENT_TYPE_INT:
+					for (UINT32 j = 0; j < dcount; j++, loc += off) {
+						int_bitwidth[j] = std::max(int_bitwidth[j], get_int_bitwidth(*(INT64*)loc)); 
+					}
+					break;
+				default: // floating point
+					for (UINT32 j = 0; j < dcount; j++, loc += off) {
+						sig_lbitwidth[j] = std::max(sig_lbitwidth[j], get_sig_lbitwidth(loc, dtype));
+						sig_mbitwidth[j] = std::max(sig_mbitwidth[j], get_sig_mbitwidth(loc, dtype));
+						exp_bitwidth[j] = std::max(exp_bitwidth[j], get_exp_bitwidth(loc, dtype));
+					}
+					break;
 				}
 
 				if (regid >= 0) {
-					regs[regid].read();
+					registers.read(regid);
 				}
 			}
-		} else if (type == iarg_imm) {
-			ADDRINT val = va_arg(lst, ADDRINT);
-			UINT32 dsigned = va_arg(lst, UINT32);
+			
+			if (is_write && regid >= 0) {
+				write_list.push_back(regid);
+			}
+			break;
+		case iarg_imm:
+			imm = va_arg(lst, ADDRINT);
+			dsigned = va_arg(lst, UINT32);
 
 			if (dsigned) {
-				int_bitwidth[0] = max(int_bitwidth[0], get_int_bitwidth((INT64)val));
+				int_bitwidth[0] = std::max(int_bitwidth[0], get_int_bitwidth((INT64)imm));
 			} else {
-				int_bitwidth[0] = max(int_bitwidth[0], get_uint_bitwidth((UINT64)val));
+				int_bitwidth[0] = std::max(int_bitwidth[0], get_uint_bitwidth((UINT64)imm));
 			}
-		} else if (type == iarg_mem) {
-			UINT32 is_read = va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-			ADDRINT addr = va_arg(lst, ADDRINT);
-			ADDRINT size = va_arg(lst, ADDRINT);
+			break;
+		case iarg_mem:
+			is_read = va_arg(lst, UINT32);
+			is_write = va_arg(lst, UINT32);
+			mem_addr = va_arg(lst, ADDRINT);
+			mem_size = va_arg(lst, ADDRINT);
 			if (is_read) {
-				instr->read(addr);
-				INT64 val = memory_getvalue(addr, size);
-				int_bitwidth[0] = max(int_bitwidth[0], get_int_bitwidth(val));
+				instructions.read(instr_addr, mem_addr);
+				mem = memory_getvalue(mem_addr, mem_size);
+				int_bitwidth[0] = std::max(int_bitwidth[0], get_int_bitwidth(mem));
 				is_mem = true;
 			}
+			
+			if (is_write) {
+				mem_list.push_back(mem_addr);
+				is_mem = true;
+			}
+			break;
 		}
 	}
 	va_end(lst);
 
-	// Iterate through the destination operands
-	va_start(lst, ops);
-	for (UINT32 i = 0; i < ops; i++) {
-		UINT32 type = va_arg(lst, UINT32);
-		if (type == iarg_reg) {
-			int regid = va_arg(lst, INT32);
-			va_arg(lst, UINT32);
-			UINT32 is_write = va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
+	for (array<int>::iterator i = write_list.begin(); i != write_list.end(); i++)
+		registers.write(*i, instructions.total);
+	write_list.clear();
 
-			if (is_write) {
-				if (regid >= 0) {
-					regs[regid].write();
-				}
-			}
-		} else if (type == iarg_imm) {
-			va_arg(lst, ADDRINT);
-			va_arg(lst, UINT32);
-			va_arg(lst, UINT32);
-		} else if (type == iarg_mem) {
-			va_arg(lst, UINT32);
-			UINT32 is_write = va_arg(lst, UINT32);
-			ADDRINT addr = va_arg(lst, ADDRINT);
-			va_arg(lst, ADDRINT);
-			if (is_write) {
-				instr->write(addr);
-				is_mem = true;
-			}
-		}
+	for (array<ADDRINT>::iterator i = mem_list.begin(); i != mem_list.end(); i++)
+		instructions.write(instr_addr, *i);
+	mem_list.clear();
+
+	opcode_t *operation = opcodes.get(opcode);
+	for (UINT32 i = 0; i < 64 && int_bitwidth[i] >= 0; i++) {
+		operation->int_bitwidth[int_bitwidth[i]]++;
+		int_bitwidth[i] = -1;
 	}
-	va_end(lst);
-
-	for (UINT32 i = 0; i < max_count; i++)
-	{
-		if (int_bitwidth[i] >= 0)
-			opcode->int_bitwidth[int_bitwidth[i]]++;
-		if (i < 32 && sig_lbitwidth[i] >= 0)
-			opcode->sig_lbitwidth[sig_lbitwidth[i]]++;
-		if (i < 32 && sig_mbitwidth[i] >= 0)
-			opcode->sig_mbitwidth[sig_mbitwidth[i]]++;
-		if (i < 32 && exp_bitwidth[i] >= 0)
-			opcode->exp_bitwidth[exp_bitwidth[i]]++;
+	
+	for (UINT32 i = 0; i < 32 && sig_lbitwidth[i] >= 0; i++) {
+		operation->sig_lbitwidth[sig_lbitwidth[i]]++;
+		sig_lbitwidth[i] = -1;
 	}
 
-	ins_count++;
-	opcode->count++;
-	instr->total++;
+	for (UINT32 i = 0; i < 32 && sig_mbitwidth[i] >= 0; i++) {
+		operation->sig_mbitwidth[sig_mbitwidth[i]]++;
+		sig_mbitwidth[i] = -1;
+	}
+
+	for (UINT32 i = 0; i < 32 && exp_bitwidth[i] >= 0; i++) {
+		operation->exp_bitwidth[exp_bitwidth[i]]++;
+		exp_bitwidth[i] = -1;
+	}
+
+	operation->count++;
 	if (is_mem)
-		opcode->mem_count++;
+		operation->mem_count++;
+	
+	instructions.exec(instr_addr);
 }
 
 static void instruction (INS ins, void *v)
 {
-	string opcode = INS_Mnemonic(ins);
-	ADDRINT address = INS_Address(ins);
-	xed_decoded_inst_t *xed = INS_XedDec(ins);
-	if (opcode.empty())
+	UINT32 opcode = (UINT32)INS_Opcode(ins);
+	if (!opcode)
 		return;
 
-	oprecord &record = opcodes[opcode];
-	insrecord &arecord = instrs[address];
-	IARGLIST args = IARGLIST_Alloc();
+	ADDRINT instr_addr = INS_Address(ins);
+	xed_decoded_inst_t *xed = INS_XedDec(ins);
 
-	record.category = INS_Category(ins);
+	opcode_t *operation = opcodes.get(opcode);
+	operation->category = INS_Category(ins);
+
+	IARGLIST args = IARGLIST_Alloc();
 
 	UINT32 ops = 0;
 	for (UINT32 i = 0; i < INS_OperandCount(ins); i++) {
@@ -888,24 +1055,23 @@ static void instruction (INS ins, void *v)
 	}
 
 	if (INS_IsPredicated(ins)) {
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_ADDRINT, &record, IARG_ADDRINT, &arecord, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_ADDRINT, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
 	} else {
-		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_ADDRINT, &record, IARG_ADDRINT, &arecord, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_ADDRINT, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
 	}
 
 	IARGLIST_Free(args);
-}
-
-static void on_init() {
-	for (int i = 0; i < 84; i++)
-		regs[i].type = reg_types + reg_type(i);
 }
 
 static void on_finish (INT32 code, void *v)
 {
 	fprintf(logfp, "writing data\n");
 
-	// Opcode Data
+	registers.finish();
+	instructions.finish();
+	opcodes.save();
+
+	/*// Opcode Data
 	FILE *fp = fopen(opname, "w");
 	// Header
 	fprintf(fp, "Category\tOpcode\tExecution Count\tMemory Count\tInteger Bitwidth Execution Count");
@@ -920,8 +1086,8 @@ static void on_finish (INT32 code, void *v)
 	fprintf(fp, "\n");
 
 	// Data
-	for (std::map<string,oprecord>::iterator ite = opcodes.begin(); ite != opcodes.end(); ite++) {
-		oprecord &rec = ite->second;
+	for (std::map<string,opcode_t>::iterator ite = opcodes.begin(); ite != opcodes.end(); ite++) {
+		opcode_t &rec = ite->second;
 
 		fprintf(fp, "%d\t%s\t%lu\t%lu", rec.category, ite->first.c_str(), rec.count, rec.mem_count);
 
@@ -950,8 +1116,8 @@ static void on_finish (INT32 code, void *v)
 	fprintf(fp, "Address\tExecution Count\tTotal Read Count\tIndividual Read Counts\n");
 
 	vector<pair<UINT64, UINT64> > addr;
-	for (std::map<ADDRINT, insrecord>::iterator ite = instrs.begin(); ite != instrs.end(); ite++) {
-		insrecord &rec = ite->second;
+	for (std::map<ADDRINT, instruction_t>::iterator ite = instrs.begin(); ite != instrs.end(); ite++) {
+		instruction_t &rec = ite->second;
 
 		fprintf(fp, "%lu\t%lu", ite->first, ite->second.total);
 		for (map<UINT64, pair<UINT64, UINT64> >::iterator i = rec.count.begin(); i != rec.count.end(); i++) {
@@ -970,17 +1136,17 @@ static void on_finish (INT32 code, void *v)
 	UINT64 count[7];
 	map<UINT64, UINT64>::iterator regi[7];
 	for (int i = 0; i < 7; i++)
-		regi[i] = reg_types[i].fanout_distribution.begin();
+		regi[i] = types[i].fanout_distribution.begin();
 
 	while (fanout != (UINT64)-1)
 	{
 		fanout = (UINT64)-1;
 		for (int i = 0; i < 7; i++)
-			if (regi[i] != reg_types[i].fanout_distribution.end() && regi[i]->first < fanout)
+			if (regi[i] != types[i].fanout_distribution.end() && regi[i]->first < fanout)
 				fanout = regi[i]->first;
 		
 		for (int i = 0; i < 7; i++) {
-			if (regi[i] == reg_types[i].fanout_distribution.end())
+			if (regi[i] == types[i].fanout_distribution.end())
 				count[i] = 0;
 			else if (regi[i]->first == fanout) {
 				count[i] = regi[i]->second;
@@ -998,17 +1164,17 @@ static void on_finish (INT32 code, void *v)
 	fprintf(fp, "Age\tRX\tSEG\tCRX\tDRX\tKX\tTRX\tMMX\n");
 	UINT64 age = 0;
 	for (int i = 0; i < 7; i++)
-		regi[i] = reg_types[i].age_distribution.begin();
+		regi[i] = types[i].age_distribution.begin();
 
 	while (age != (UINT64)-1)
 	{
 		age = (UINT64)-1;
 		for (int i = 0; i < 7; i++)
-			if (regi[i] != reg_types[i].age_distribution.end() && regi[i]->first < age)
+			if (regi[i] != types[i].age_distribution.end() && regi[i]->first < age)
 				age = regi[i]->first;
 		
 		for (int i = 0; i < 7; i++) {
-			if (regi[i] == reg_types[i].age_distribution.end())
+			if (regi[i] == types[i].age_distribution.end())
 				count[i] = 0;
 			else if (regi[i]->first == age) {
 				count[i] = regi[i]->second;
@@ -1019,7 +1185,7 @@ static void on_finish (INT32 code, void *v)
 		
 		fprintf(fp, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", age, count[0], count[1], count[2], count[3], count[4], count[5], count[6]);
 	}
-	fclose(fp);
+	fclose(fp);*/
 
 	fprintf(logfp, "finish %d\n", code);
 	fclose(logfp);
@@ -1039,8 +1205,6 @@ int main (int argc, char *argv[])
 	}
 
 	logfp = fopen(logname, "w");
-
-	on_init();
 
 	PIN_InitSymbols();
 
