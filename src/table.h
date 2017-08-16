@@ -809,7 +809,7 @@ struct map : table<implier<ktype, vtype> >
 			return;
 
 		typename container::iterator ci;
-		UINT64 i, j;
+		uint64_t i, j;
 		implier<ktype, vtype> x;
 
 		i = count-1;
