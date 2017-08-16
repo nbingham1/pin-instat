@@ -1,0 +1,3 @@
+[submodule "docs/format"]
+	path = docs/format
+	url = https://github.com/nbingham1/paper-format.git
