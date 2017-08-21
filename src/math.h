@@ -49,13 +49,13 @@ type abs(type t)
 }
 
 template <class type>
-type min(type && t1, type && t2)
+type min(type t1, type t2)
 {
 	return (t1 < t2 ? t1 : t2);
 }
 
 template <class type>
-type max(type && t1, type && t2)
+type max(type t1, type t2)
 {
 	return (t1 < t2 ? t2 : t1);
 }

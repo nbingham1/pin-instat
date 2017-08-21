@@ -1,5 +1,9 @@
 #include "opcode.h"
 
+extern "C" {
+#include <xed-interface.h>
+}
+
 opcode_t::opcode_t()
 {
 	category = -1;
@@ -49,27 +53,27 @@ opcode_t update_opcode(opcode_t a, opcode_t b)
 	return a;
 }
 
-UINT64 get_ufield(UINT8 *val, UINT32 start, UINT32 length)
+uint64_t get_ufield(uint8_t *val, uint32_t start, uint32_t length)
 {
-	UINT64 sect = *(UINT64*)(val + (start>>3));
-	UINT32 off = start & 7;
+	uint64_t sect = *(uint64_t*)(val + (start>>3));
+	uint32_t off = start & 7;
 	sect <<= 64 - length - off;
 	sect >>= 64 - length;
 	return sect;
 }
 
-INT64 get_sfield(UINT8 *val, UINT32 start, UINT32 length)
+int64_t get_sfield(uint8_t *val, uint32_t start, uint32_t length)
 {
-	INT64 sect = *(INT64*)(val + (start>>3));
-	UINT32 off = start & 7;
+	int64_t sect = *(int64_t*)(val + (start>>3));
+	uint32_t off = start & 7;
 	sect <<= 64 - length - off;
 	sect >>= 64 - length;
 	return sect;
 }
 
-int get_int_bitwidth(INT64 val) {
+int get_int_bitwidth(int64_t val) {
 	int bitwidth = 0;	
-	INT64 test = val;
+	int64_t test = val;
 	while (test != 0 && test != -1) {
 		test >>= 1;
 		bitwidth++;
@@ -77,9 +81,9 @@ int get_int_bitwidth(INT64 val) {
 	return bitwidth;
 }
 
-int get_uint_bitwidth(UINT64 val) {
+int get_uint_bitwidth(uint64_t val) {
 	int bitwidth = 0;	
-	UINT64 test = val;
+	uint64_t test = val;
 	while (test != 0) {
 		test >>= 1;
 		bitwidth++;
@@ -87,9 +91,9 @@ int get_uint_bitwidth(UINT64 val) {
 	return bitwidth;
 }
 
-int get_msbf_bitwidth(UINT64 val, UINT32 width) {
+int get_msbf_bitwidth(uint64_t val, uint32_t width) {
 	int bitwidth = 0;	
-	UINT64 test = val << (64-width);
+	uint64_t test = val << (64-width);
 	while (test != 0) {
 		test <<= 1;
 		bitwidth++;
@@ -97,9 +101,9 @@ int get_msbf_bitwidth(UINT64 val, UINT32 width) {
 	return bitwidth;
 }
 
-int get_sig_lbitwidth(UINT8 *val, UINT32 type) {
-	UINT32 sign;
-	UINT32 width;
+int get_sig_lbitwidth(uint8_t *val, uint32_t type) {
+	uint32_t sign;
+	uint32_t width;
 	switch (type) {
 	case XED_OPERAND_ELEMENT_TYPE_FLOAT16:
 		width = 10;
@@ -121,16 +125,16 @@ int get_sig_lbitwidth(UINT8 *val, UINT32 type) {
 		return -1;
 	}
 
-	INT64 field = get_sfield(val, 0, width);
+	int64_t field = get_sfield(val, 0, width);
 	if (sign)
 		field = -field;	
 
 	return get_int_bitwidth(field);
 }
 
-int get_sig_mbitwidth(UINT8 *val, UINT32 type) {
-	UINT32 sign;
-	UINT32 width;
+int get_sig_mbitwidth(uint8_t *val, uint32_t type) {
+	uint32_t sign;
+	uint32_t width;
 	switch (type) {
 	case XED_OPERAND_ELEMENT_TYPE_FLOAT16:
 		width = 10;
@@ -152,7 +156,7 @@ int get_sig_mbitwidth(UINT8 *val, UINT32 type) {
 		return -1;
 	}
 
-	INT64 field = get_sfield(val, 0, width);
+	int64_t field = get_sfield(val, 0, width);
 	if (sign)
 		field = -field;
 
@@ -160,8 +164,8 @@ int get_sig_mbitwidth(UINT8 *val, UINT32 type) {
 }
 
 
-int get_exp_bitwidth(UINT8 *val, UINT32 type) {
-	INT64 field = 0;
+int get_exp_bitwidth(uint8_t *val, uint32_t type) {
+	int64_t field = 0;
 	switch (type) {
 	case XED_OPERAND_ELEMENT_TYPE_FLOAT16:
 		field = get_sfield(val, 10, 5) - 15;
@@ -182,22 +186,22 @@ int get_exp_bitwidth(UINT8 *val, UINT32 type) {
 	return get_int_bitwidth(field);
 }
 
-ADDRINT memory_getvalue(ADDRINT addr, ADDRINT size)
+uintptr_t memory_getvalue(uintptr_t addr, uintptr_t size)
 {
-	ADDRINT val;
+	uintptr_t val;
 	switch (size) {
-		case 1: val = *(UINT8 *)addr; break;
-		case 2: val = *(UINT16 *)addr; break;
-		case 4: val = *(UINT32 *)addr; break;
+		case 1: val = *(uint8_t *)addr; break;
+		case 2: val = *(uint16_t *)addr; break;
+		case 4: val = *(uint32_t *)addr; break;
 #ifdef TARGET_IA32E
-		case 8: val = *(UINT64 *)addr; break;
+		case 8: val = *(uint64_t *)addr; break;
 #endif
-		default: val = *(ADDRINT *)addr;
+		default: val = *(uintptr_t *)addr;
 	}
 	return val;
 }
 
-int get_category(UINT32 opcode)
+int get_category(uint32_t opcode)
 {
 	switch (opcode)
 	{
@@ -443,9 +447,8 @@ int get_category(UINT32 opcode)
 	case XED_ICLASS_VPMOVMSKB:
 	case XED_ICLASS_XGETBV:
 	case XED_ICLASS_LEA:
-		return CTRL_OTHER;
 	default:
-		return -1;
+		return CTRL_OTHER;
 	}
 }
 
