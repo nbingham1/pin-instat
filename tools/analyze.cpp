@@ -134,9 +134,16 @@ int main()
 		}
 
 		{
-			uint64_t int_sums[opcodes.size()] = {0};
-			uint64_t sig_sums[opcodes.size()] = {0};
-			uint64_t exp_sums[opcodes.size()] = {0};
+			uint64_t int_sums[opcodes.size()];
+			uint64_t sig_sums[opcodes.size()];
+			uint64_t exp_sums[opcodes.size()];
+			for (int i = 0; i < opcodes.size(); i++)
+			{
+				int_sums[i] = 0;
+				sig_sums[i] = 0;
+				exp_sums[i] = 0;
+			}
+
 			for (core::map<uint64_t, implier<uint64_t, opcode_t> >::iterator i = opcodes.rbegin(); i != opcodes.rend(); i--)
 			{
 				for (int j = 0; j < 65; j++)
@@ -162,7 +169,10 @@ int main()
 				}
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[opcodes.size()] = {0};
+				uint64_t cumulative[opcodes.size()];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 65; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -196,7 +206,10 @@ int main()
 				}
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[opcodes.size()] = {0};
+				uint64_t cumulative[opcodes.size()];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 53; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -230,7 +243,10 @@ int main()
 				}
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[opcodes.size()] = {0};
+				uint64_t cumulative[opcodes.size()];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 53; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -264,7 +280,10 @@ int main()
 				}
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[opcodes.size()] = {0};
+				uint64_t cumulative[opcodes.size()];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 17; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -285,9 +304,16 @@ int main()
 		}
 
 		{
-			uint64_t int_sums[6] = {0};
-			uint64_t sig_sums[6] = {0};
-			uint64_t exp_sums[6] = {0};
+			uint64_t int_sums[6];
+			uint64_t sig_sums[6];
+			uint64_t exp_sums[6];
+			for (int i = 0; i < 6; i++)
+			{
+				int_sums[i] = 0;
+				sig_sums[i] = 0;
+				exp_sums[i] = 0;
+			}
+
 			for (int i = 0; i < 6; i++)
 			{
 				for (int j = 0; j < 65; j++)
@@ -306,7 +332,10 @@ int main()
 						fprintf(fptr, "%s\tProbability\tCumulative\t", cat_names[i]);
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[6] = {0};
+				uint64_t cumulative[6];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 65; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -331,7 +360,10 @@ int main()
 						fprintf(fptr, "%s\tProbability\tCumulative\t", cat_names[i]);
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[6] = {0};
+				uint64_t cumulative[6];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 53; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -356,7 +388,10 @@ int main()
 						fprintf(fptr, "%s\tProbability\tCumulative\t", cat_names[i]);
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[6] = {0};
+				uint64_t cumulative[6];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 53; j++)
 				{
 					fprintf(fptr, "%d\t", j);
@@ -381,7 +416,10 @@ int main()
 						fprintf(fptr, "%s\tProbability\tCumulative\t", cat_names[i]);
 				fprintf(fptr, "\n");
 
-				uint64_t cumulative[6] = {0};
+				uint64_t cumulative[6];
+				for (int i = 0; i < opcodes.size(); i++)
+					cumulative[i] = 0;
+
 				for (int j = 0; j < 17; j++)
 				{
 					fprintf(fptr, "%d\t", j);
