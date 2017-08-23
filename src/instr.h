@@ -26,6 +26,13 @@ bool operator>=(memory_key_t k0, memory_key_t k1);
 bool operator==(memory_key_t k0, memory_key_t k1);
 bool operator!=(memory_key_t k0, memory_key_t k1);
 
+bool operator<(memory_value_t k0, memory_value_t k1);
+bool operator>(memory_value_t k0, memory_value_t k1);
+bool operator<=(memory_value_t k0, memory_value_t k1);
+bool operator>=(memory_value_t k0, memory_value_t k1);
+bool operator==(memory_value_t k0, memory_value_t k1);
+bool operator!=(memory_value_t k0, memory_value_t k1);
+
 uint64_t update(uint64_t a, uint64_t b);
 memory_value_t update_mem(memory_value_t a, memory_value_t b);
 

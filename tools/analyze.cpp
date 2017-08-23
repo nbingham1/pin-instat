@@ -1,8 +1,33 @@
 #include "src/opcode.h"
 #include "src/table.h"
 #include "src/map.h"
+#include "src/instr.h"
+#include "src/array.h"
+#include "src/reg.h"
 
 #include <ctype.h>
+
+struct mem_access_t
+{
+	memory_value_t total;
+	array<memory_value_t> distribution;
+};
+
+struct memory_fvalue_t
+{
+	memory_fvalue_t()
+	{
+		read = 0.0f;
+		write = 0.0f;
+	}
+
+	~memory_fvalue_t()
+	{
+	}
+
+	float read;
+	float write;
+};
 
 int cat_col(int cat)
 {
@@ -376,7 +401,102 @@ int main()
 	}
 
 	{
+		fptr = fopen("fanout.tsv", "w");
+		file::table<register_count_t> tbl("fanout.tbl", false);
+		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
+			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
+		fclose(fptr);	
+	}
+
+	{
+		fptr = fopen("age.tsv", "w");
+		file::table<register_count_t> tbl("age.tbl", false);
+		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
+			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
+		fclose(fptr);	
+	}
+
+	{
 		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
+		map<uint64_t, uint64_t> counts;
+		map<uint64_t, implier<uint64_t, uint64_t> > blocks;
+		
+		file::table<core::implier<uint64_t, uint64_t> >::iterator i;
+		for (i = instr.begin(); i != instr.end(); i++)
+			counts.at(i->value, 0)->value++;
+	
+		map<uint64_t, uint64_t>::iterator j;	
+		for (j = counts.begin(); j != counts.end(); j++)
+			blocks.insert(j->key*j->value, *j);
+
+		fptr = fopen("block.tsv", "w");
+		map<uint64_t, implier<uint64_t, uint64_t> >::iterator k;
+		uint64_t exe_sum = 0, instr_sum = 0;
+		for (k = blocks.rbegin(); k != blocks.rend(); k--) {
+			exe_sum += k->value.key*k->value.value;
+			instr_sum += k->value.value;
+			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\n", k->value.key, k->value.value, exe_sum, instr_sum);
+		}
+		fclose(fptr);
+	}
+
+	{
+		file::table<core::implier<memory_key_t, memory_value_t> > mem("memory.tbl", false);
+		// indexed by instruction address
+		map<uint64_t, mem_access_t> blocks;
+		map<uint64_t, mem_access_t>::iterator block;
+		{
+			file::table<core::implier<memory_key_t, memory_value_t> >::iterator i;
+			for (i = mem.begin(); i != mem.end(); i++)
+			{
+				if (!block || block->key != i->key.instr)
+					block = blocks.at(i->key.instr);
+
+				if (i.idx()%(mem.size()/1000) == 0)
+				{
+					printf("\r%.1f%%          ", 100.0*(float)i.idx()/(float)mem.size());
+					fflush(stdout);
+				}
+			
+				if (i->value.read + i->value.write > 0)
+				{
+					block->value.distribution.push_back(i->value);
+					block->value.total.read += i->value.read;
+					block->value.total.write += i->value.write;
+				}
+			}
+		}
+
+		array<memory_fvalue_t> ave;
+		for (map<uint64_t, mem_access_t>::iterator i = blocks.begin(); i != blocks.end(); i++)
+		{
+			printf("\r%d %.1f%%          ", i->value.distribution.size(), 100.0*(float)i.idx()/(float)blocks.size());
+			fflush(stdout);
+			sort_inplace(i->value.distribution);
+			if (ave.size() < i->value.distribution.size())
+				ave.resize(i->value.distribution.size());
+			for (int j = 0; j < i->value.distribution.size(); j++)
+			{
+				if (i->value.total.read > 0)
+					ave[j].read += (float)i->value.distribution[j].read/(float)i->value.total.read;
+				if (i->value.total.write > 0)
+					ave[j].write += (float)i->value.distribution[j].write/(float)i->value.total.write;
+			}
+		}
+
+		fptr = fopen("memory.tsv", "w");
+		memory_fvalue_t total;
+		for (int i = 0; i < ave.size(); i++) {
+			float read = 0.0f, write = 0.0f;
+			read = ave[i].read/(float)blocks.size();
+			write = ave[i].write/(float)blocks.size();
+
+			total.read += read;
+			total.write += write;
+
+			fprintf(fptr, "%f\t%f\t%f\t%f\n", read, total.read, write, total.write);
+		}
+		fclose(fptr);
 	}
 }
 

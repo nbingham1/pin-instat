@@ -66,6 +66,36 @@ bool operator!=(memory_key_t k0, memory_key_t k1)
 	return k0.instr != k1.instr || k0.mem != k1.mem;
 }
 
+bool operator<(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) < (k1.read + k1.write);
+}
+
+bool operator>(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) > (k1.read + k1.write);
+}
+
+bool operator<=(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) <= (k1.read + k1.write);
+}
+
+bool operator>=(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) >= (k1.read + k1.write);
+}
+
+bool operator==(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) == (k1.read + k1.write);
+}
+
+bool operator!=(memory_value_t k0, memory_value_t k1)
+{
+	return (k0.read + k0.write) != (k1.read + k1.write);
+}
+
 uint64_t update(uint64_t a, uint64_t b)
 {
 	return a+b;

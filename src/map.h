@@ -53,11 +53,11 @@ struct map : list<implier<ktype, vtype> >
 			return end();
 	}
 
-	iterator at(const ktype &key)
+	iterator at(const ktype &key, const vtype &value = vtype())
 	{
 		iterator pos = lower_bound(*this, key);
 		if (pos == end() || pos->key != key) {
-			pos.push(implier<ktype, vtype>(key, vtype()));
+			pos.push(implier<ktype, vtype>(key, value));
 			return pos-1;
 		} else
 			return pos;

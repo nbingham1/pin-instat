@@ -24,10 +24,7 @@ obj/%.o: src/%.cpp
 	g++ $(DEFINES) $(WARNINGS) $(FLAGS) $(INCLUDE_PATHS) -c -o $@ $<
 
 analyze: tools/analyze.cpp $(filter-out src/instat.cpp,$(SOURCES))
-	g++ $(DEFINES) $(LIBRARY_PATHS) -I. -I$(PIN_ROOT)/source/include/pin -I$(PIN_ROOT)/source/include/pin/gen -I$(PIN_ROOT)/extras/components/include -I$(PIN_ROOT)/extras/xed-intel64/include/xed -I$(PIN_ROOT)/source/tools/InstLib $^ -o analyze -lpin -lxed -ldl-dynamic -lm-dynamic -lc-dynamic -lunwind-dynamic
-
-
+	g++ -DTARGET_IA32E -DHOST_IA32E -DTARGET_LINUX $(LIBRARY_PATHS) -I. -I$(PIN_ROOT)/source/include/pin -I$(PIN_ROOT)/source/include/pin/gen -I$(PIN_ROOT)/extras/components/include -I$(PIN_ROOT)/extras/xed-intel64/include/xed -I$(PIN_ROOT)/source/tools/InstLib $^ -o analyze -lxed
 
 clean:
-	rm -rf obj
-	rm $(TARGET)
+	rm -rf obj $(TARGET) analyze *.tsv
