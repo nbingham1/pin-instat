@@ -27,6 +27,7 @@ struct cached_table
 	~cached_table()
 	{
 		finish();
+		store.close();
 	}
 
 	typedef implier<uint64_t, value_type> cache_type;
@@ -49,7 +50,6 @@ struct cached_table
 					cache[i].key = (uint64_t)-1;
 					count--;
 				}
-			store.close();
 		}
 		fprintf(fptr, "Done %d[%d]\n", count, store.size());
 	}

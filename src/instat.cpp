@@ -489,8 +489,11 @@ static void on_ins (CONTEXT *ctx, UINT32 opcode, ADDRINT instr_addr, UINT32 ops,
 {
 	static array<int> write_list;
 	static array<ADDRINT> mem_list;
-	if ((instructions.total & 4095) == 0)
+	if ((instructions.total & 16383) == 0)
 	{
+		registers.finish(logfp);
+		instructions.finish(logfp);
+		opcodes.save(logfp);
 		fprintf(logfp, "%lu Instructions %d/%d Opcodes\n", instructions.total, opcodes.cache.size(), opcodes.store.size());
 		fflush(stdout);
 	}
