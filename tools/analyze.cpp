@@ -441,6 +441,7 @@ int main()
 	{
 		fptr = fopen("fanout.tsv", "w");
 		file::table<register_count_t> tbl("fanout.tbl", false);
+		fprintf(fptr, "REG\tSEG\tCR\tDR\tK\tTR\tMM\n");
 		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
 		fclose(fptr);	
@@ -449,14 +450,20 @@ int main()
 	{
 		fptr = fopen("age.tsv", "w");
 		file::table<register_count_t> tbl("age.tbl", false);
+		fprintf(fptr, "REG\tSEG\tCR\tDR\tK\tTR\tMM\n");
 		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
 		fclose(fptr);	
 	}
 
 	{
+		// {Instruction Address: Execution Count}
 		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
+
+		// {Block Execution Count: Block Size}
 		map<uint64_t, uint64_t> counts;
+
+		// {Instruction Execution Count (Block Count * Block Size): (Block Execution Count, Block Size)}
 		map<uint64_t, implier<uint64_t, uint64_t> > blocks;
 		
 		file::table<core::implier<uint64_t, uint64_t> >::iterator i;
@@ -468,6 +475,7 @@ int main()
 			blocks.insert(j->key*j->value, *j);
 
 		fptr = fopen("block.tsv", "w");
+		fprintf(fptr, "Block Executions\tBlock Instructions\tCumulative Total Executions\tCumulative Instructions\n");
 		map<uint64_t, implier<uint64_t, uint64_t> >::iterator k;
 		uint64_t exe_sum = 0, instr_sum = 0;
 		for (k = blocks.rbegin(); k != blocks.rend(); k--) {
@@ -523,6 +531,7 @@ int main()
 		}
 
 		fptr = fopen("memory.tsv", "w");
+		fprintf(fptr, "Read\tCumulative Read\tWrite\tCumulative Write\n");
 		memory_fvalue_t total;
 		for (int i = 0; i < ave.size(); i++) {
 			float read = 0.0f, write = 0.0f;
