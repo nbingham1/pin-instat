@@ -52,3 +52,16 @@ struct instruction_record_t {
 	void write(uint64_t instr, uint64_t mem, FILE *log = stdout);
 };
 
+struct assembly_t
+{
+	assembly_t();
+	assembly_t(uint32_t opcode, const char *str);
+	~assembly_t();
+
+	uint32_t opcode;
+	uint8_t category;
+	char str[256];
+};
+
+assembly_t update_assembly(assembly_t a, assembly_t b);
+

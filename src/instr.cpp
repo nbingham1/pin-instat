@@ -1,4 +1,5 @@
 #include "instr.h"
+#include "opcode.h"
 
 memory_key_t::memory_key_t()
 {
@@ -147,3 +148,26 @@ void instruction_record_t::write(uint64_t instr, uint64_t mem, FILE *log)
 	value->write++;
 }
 
+assembly_t::assembly_t()
+{
+	opcode = 0;
+	category = 0;
+	for (int i = 0; i < 256; i++)
+		str[i] = '\0';
+}
+
+assembly_t::assembly_t(uint32_t opcode, const char *str)
+{
+	this->opcode = opcode;
+	this->category = get_category(opcode);
+	strncpy(this->str, str, 255);
+}
+
+assembly_t::~assembly_t()
+{
+}
+
+assembly_t update_assembly(assembly_t a, assembly_t b)
+{
+	return b;
+}

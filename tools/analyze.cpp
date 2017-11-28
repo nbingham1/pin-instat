@@ -47,6 +47,63 @@ int cat_col(int cat)
 	return -1;
 }
 
+struct instruction
+{
+	instruction()
+	{
+		
+	}
+
+	instruction(uint64_t addr, uint64_t count, uint8_t category, const char *str)
+	{
+		this->addr = addr;
+		this->count = count;
+		this->category = category;
+		strncpy(this->str, str, 256);
+	}
+
+	~instruction()
+	{
+		
+	}
+
+	uint64_t addr;
+	uint64_t count;
+	uint8_t category;
+	char str[256];
+};
+
+bool operator>(const instruction &i0, const instruction &i1)
+{
+	return i0.count > i1.count || (i0.count == i1.count && i1.addr < i0.addr);
+}
+
+bool operator<(const instruction &i0, const instruction &i1)
+{
+	return i0.count < i1.count || (i0.count == i1.count && i1.addr > i0.addr);
+}
+
+bool operator>=(const instruction &i0, const instruction &i1)
+{
+	return i0.count > i1.count || (i0.count == i1.count && i1.addr <= i0.addr);
+}
+
+bool operator<=(const instruction &i0, const instruction &i1)
+{
+	return i0.count < i1.count || (i0.count == i1.count && i1.addr >= i0.addr);
+}
+
+bool operator==(const instruction &i0, const instruction &i1)
+{
+	return i0.count == i1.count && i1.addr == i0.addr;
+}
+
+bool operator!=(const instruction &i0, const instruction &i1)
+{
+	return i0.count != i1.count || i1.addr != i0.addr;
+}
+
+
 int main()
 {
 	FILE *fptr;
@@ -459,6 +516,45 @@ int main()
 	{
 		// {Instruction Address: Execution Count}
 		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
+		file::table<core::implier<uint64_t, assembly_t> > assem("image.tbl", false);
+
+		printf("%d %d\n", instr.size(), assem.size());
+	
+		array<instruction> data;
+		data.reserve(instr.size());
+		
+		uint64_t total = 0;
+		file::table<core::implier<uint64_t, assembly_t> >::iterator j = assem.begin();
+		for (file::table<core::implier<uint64_t, uint64_t> >::iterator i = instr.begin(); i != instr.end(); i++)
+		{
+			while (j != assem.end() && j->key != i->key)
+			{
+				j++;
+			}
+
+			if (j == assem.end())
+				data.push_back(instruction(i->key, i->value, 255, ""));
+			else
+				data.push_back(instruction(i->key, i->value, j->value.category, j->value.str));
+			total += i->value;
+		}
+		sort_quick_inplace(data);
+	
+		fptr = fopen("block.tsv", "w");
+		fprintf(fptr, "Execution Count\tCumulative Execution Percent\tInstruction Address\n");
+		uint64_t curr = 0;
+		for (array<instruction>::iterator i = data.rbegin(); i != data.rend(); i--)
+		{
+			curr += i->count;
+			fprintf(fptr, "%lu\t%f\t%lx\t%u\t%s\n", i->count, 100.0f*(float)curr/(float)total, i->addr, (uint32_t)i->category, i->str);
+		}
+		fclose(fptr);
+	}
+
+
+	/*{
+		// {Instruction Address: Execution Count}
+		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
 
 		// {Block Execution Count: Block Size}
 		map<uint64_t, uint64_t> counts;
@@ -484,7 +580,7 @@ int main()
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\n", k->value.key, k->value.value, exe_sum, instr_sum);
 		}
 		fclose(fptr);
-	}
+	}*/
 
 	{
 		file::table<core::implier<memory_key_t, memory_value_t> > mem("memory.tbl", false);

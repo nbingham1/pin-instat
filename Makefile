@@ -1,4 +1,7 @@
-PIN_ROOT = /opt/pin-3.2-81205-gcc-linux
+.PHONY: tools
+
+PIN_ROOT = ${SAY}/src/pin-3.2-81205-gcc-linux
+#xed-install-base-2016-02-02-lin-x86-64
 DEFINES = -DBIGARRAY_MULTIPLIER=1 -D__PIN__=1 -DPIN_CRT=1 -DTARGET_IA32E -DHOST_IA32E -DTARGET_LINUX
 WARNINGS = -Wall -Werror -Wno-unknown-pragmas 
 FLAGS = -fno-stack-protector -fno-exceptions -funwind-tables -fasynchronous-unwind-tables -fno-rtti -fPIC -fabi-version=2 -O3 -fomit-frame-pointer -fno-strict-aliasing -std=c++11
@@ -9,6 +12,8 @@ LIBRARIES = -lpin -lxed $(PIN_ROOT)/intel64/runtime/pincrt/crtendS.o -lpin3dwarf
 LINK_FLAGS = -shared -Wl,--hash-style=sysv $(PIN_ROOT)/intel64/runtime/pincrt/crtbeginS.o -Wl,-Bsymbolic -Wl,--version-script=$(PIN_ROOT)/source/include/pin/pintool.ver -fabi-version=2
 
 SOURCES = $(shell find src -name "*.cpp")
+TOOL_SRC = $(shell find tools -name "*.cpp")
+TOOL = $(TOOL_SRC:tools/%.cpp=%)
 OBJECTS = $(SOURCES:src/%.cpp=obj/%.o)
 TARGET = instat.so
 
@@ -23,8 +28,10 @@ $(TARGET): $(OBJECTS)
 obj/%.o: src/%.cpp
 	g++ $(DEFINES) $(WARNINGS) $(FLAGS) $(INCLUDE_PATHS) -c -o $@ $<
 
-analyze: tools/analyze.cpp $(filter-out src/instat.cpp,$(SOURCES))
-	g++ -DTARGET_IA32E -DHOST_IA32E -DTARGET_LINUX $(LIBRARY_PATHS) -I. -I$(PIN_ROOT)/source/include/pin -I$(PIN_ROOT)/source/include/pin/gen -I$(PIN_ROOT)/extras/components/include -I$(PIN_ROOT)/extras/xed-intel64/include/xed -I$(PIN_ROOT)/source/tools/InstLib $^ -o analyze -lxed
+tools: $(TOOL)
+
+%: tools/%.cpp $(filter-out src/instat.cpp,$(SOURCES))
+	g++ -DTARGET_IA32E -DHOST_IA32E -DTARGET_LINUX $(LIBRARY_PATHS) -I. -I$(PIN_ROOT)/source/include/pin -I$(PIN_ROOT)/source/include/pin/gen -I$(PIN_ROOT)/extras/components/include -I$(PIN_ROOT)/extras/xed-intel64/include/xed -I$(PIN_ROOT)/source/tools/InstLib $^ -o $@ -lxed
 
 clean:
 	rm -rf obj $(TARGET) analyze *.tsv

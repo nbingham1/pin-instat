@@ -364,6 +364,8 @@ FILE *logfp;
 register_record_t registers("fanout.tbl", "age.tbl");
 instruction_record_t instructions("memory.tbl", "instrs.tbl");
 cached_map<uint64_t, opcode_t, 1000, &update_opcode> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
+// {instruction address: opcode}
+cached_map<uint64_t, assembly_t, 1000, &update_assembly> image("image.tbl");
 
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
@@ -413,6 +415,8 @@ static void instruction (INS ins, void *v)
 
 	ADDRINT instr_addr = INS_Address(ins);
 	xed_decoded_inst_t *xed = INS_XedDec(ins);
+
+	image.update(instr_addr, assembly_t(opcode, INS_Disassemble(ins).c_str()));
 
 	opcode_t *operation = opcodes.get(opcode);
 	operation->category = INS_Category(ins);
@@ -659,6 +663,8 @@ static void on_finish (INT32 code, void *v)
 	registers.finish(logfp);
 	instructions.finish(logfp);
 	opcodes.save(logfp);
+
+	image.save(logfp);	
 
 	fprintf(logfp, "Exit %d\n", code);
 	fclose(logfp);
