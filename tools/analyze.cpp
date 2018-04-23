@@ -527,15 +527,16 @@ int main()
 		file::table<core::implier<uint64_t, assembly_t> >::iterator j = assem.begin();
 		for (file::table<core::implier<uint64_t, uint64_t> >::iterator i = instr.begin(); i != instr.end(); i++)
 		{
-			while (j != assem.end() && j->key != i->key)
-			{
+			while (j != assem.end() && j->key < i->key)
 				j++;
-			}
 
-			if (j == assem.end())
-				data.push_back(instruction(i->key, i->value, 255, ""));
-			else
+			if (j->key == i->key)
 				data.push_back(instruction(i->key, i->value, j->value.category, j->value.str));
+			else
+			{
+				data.push_back(instruction(i->key, i->value, 255, ""));
+				printf("couldn't find %lu\n", i->key);
+			}
 			total += i->value;
 		}
 		sort_quick_inplace(data);
