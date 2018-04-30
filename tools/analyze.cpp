@@ -47,6 +47,63 @@ int cat_col(int cat)
 	return -1;
 }
 
+struct instruction
+{
+	instruction()
+	{
+		
+	}
+
+	instruction(uint64_t addr, uint64_t count, uint8_t category, const char *str)
+	{
+		this->addr = addr;
+		this->count = count;
+		this->category = category;
+		strncpy(this->str, str, 256);
+	}
+
+	~instruction()
+	{
+		
+	}
+
+	uint64_t addr;
+	uint64_t count;
+	uint8_t category;
+	char str[256];
+};
+
+bool operator>(const instruction &i0, const instruction &i1)
+{
+	return i0.count > i1.count || (i0.count == i1.count && i1.addr < i0.addr);
+}
+
+bool operator<(const instruction &i0, const instruction &i1)
+{
+	return i0.count < i1.count || (i0.count == i1.count && i1.addr > i0.addr);
+}
+
+bool operator>=(const instruction &i0, const instruction &i1)
+{
+	return i0.count > i1.count || (i0.count == i1.count && i1.addr <= i0.addr);
+}
+
+bool operator<=(const instruction &i0, const instruction &i1)
+{
+	return i0.count < i1.count || (i0.count == i1.count && i1.addr >= i0.addr);
+}
+
+bool operator==(const instruction &i0, const instruction &i1)
+{
+	return i0.count == i1.count && i1.addr == i0.addr;
+}
+
+bool operator!=(const instruction &i0, const instruction &i1)
+{
+	return i0.count != i1.count || i1.addr != i0.addr;
+}
+
+
 int main()
 {
 	FILE *fptr;
@@ -441,6 +498,7 @@ int main()
 	{
 		fptr = fopen("fanout.tsv", "w");
 		file::table<register_count_t> tbl("fanout.tbl", false);
+		fprintf(fptr, "REG\tSEG\tCR\tDR\tK\tTR\tMM\n");
 		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
 		fclose(fptr);	
@@ -449,14 +507,60 @@ int main()
 	{
 		fptr = fopen("age.tsv", "w");
 		file::table<register_count_t> tbl("age.tbl", false);
+		fprintf(fptr, "REG\tSEG\tCR\tDR\tK\tTR\tMM\n");
 		for (file::table<register_count_t>::iterator i = tbl.begin(); i != tbl.end(); i++)
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\t%lu\t%lu\t%lu\n", i->count[0], i->count[1], i->count[2], i->count[3], i->count[4], i->count[5], i->count[6]);
 		fclose(fptr);	
 	}
 
 	{
+		// {Instruction Address: Execution Count}
 		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
+		file::table<core::implier<uint64_t, assembly_t> > assem("image.tbl", false);
+
+		printf("%d %d\n", instr.size(), assem.size());
+	
+		array<instruction> data;
+		data.reserve(instr.size());
+		
+		uint64_t total = 0;
+		file::table<core::implier<uint64_t, assembly_t> >::iterator j = assem.begin();
+		for (file::table<core::implier<uint64_t, uint64_t> >::iterator i = instr.begin(); i != instr.end(); i++)
+		{
+			while (j != assem.end() && j->key < i->key)
+				j++;
+
+			if (j->key == i->key)
+				data.push_back(instruction(i->key, i->value, j->value.category, j->value.str));
+			else
+			{
+				data.push_back(instruction(i->key, i->value, 255, ""));
+				printf("couldn't find %lu\n", i->key);
+			}
+			total += i->value;
+		}
+		sort_quick_inplace(data);
+	
+		fptr = fopen("block.tsv", "w");
+		fprintf(fptr, "Execution Count\tCumulative Execution Percent\tInstruction Address\n");
+		uint64_t curr = 0;
+		for (array<instruction>::iterator i = data.rbegin(); i != data.rend(); i--)
+		{
+			curr += i->count;
+			fprintf(fptr, "%lu\t%f\t%lx\t%u\t%s\n", i->count, 100.0f*(float)curr/(float)total, i->addr, (uint32_t)i->category, i->str);
+		}
+		fclose(fptr);
+	}
+
+
+	/*{
+		// {Instruction Address: Execution Count}
+		file::table<core::implier<uint64_t, uint64_t> > instr("instrs.tbl", false);
+
+		// {Block Execution Count: Block Size}
 		map<uint64_t, uint64_t> counts;
+
+		// {Instruction Execution Count (Block Count * Block Size): (Block Execution Count, Block Size)}
 		map<uint64_t, implier<uint64_t, uint64_t> > blocks;
 		
 		file::table<core::implier<uint64_t, uint64_t> >::iterator i;
@@ -468,6 +572,7 @@ int main()
 			blocks.insert(j->key*j->value, *j);
 
 		fptr = fopen("block.tsv", "w");
+		fprintf(fptr, "Block Executions\tBlock Instructions\tCumulative Total Executions\tCumulative Instructions\n");
 		map<uint64_t, implier<uint64_t, uint64_t> >::iterator k;
 		uint64_t exe_sum = 0, instr_sum = 0;
 		for (k = blocks.rbegin(); k != blocks.rend(); k--) {
@@ -476,7 +581,7 @@ int main()
 			fprintf(fptr, "%lu\t%lu\t%lu\t%lu\n", k->value.key, k->value.value, exe_sum, instr_sum);
 		}
 		fclose(fptr);
-	}
+	}*/
 
 	{
 		file::table<core::implier<memory_key_t, memory_value_t> > mem("memory.tbl", false);
@@ -523,6 +628,7 @@ int main()
 		}
 
 		fptr = fopen("memory.tsv", "w");
+		fprintf(fptr, "Read\tCumulative Read\tWrite\tCumulative Write\n");
 		memory_fvalue_t total;
 		for (int i = 0; i < ave.size(); i++) {
 			float read = 0.0f, write = 0.0f;

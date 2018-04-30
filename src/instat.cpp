@@ -364,6 +364,8 @@ FILE *logfp;
 register_record_t registers("fanout.tbl", "age.tbl");
 instruction_record_t instructions("memory.tbl", "instrs.tbl");
 cached_map<uint64_t, opcode_t, 1000, &update_opcode> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
+// {instruction address: opcode}
+cached_map<uint64_t, assembly_t, 1000, &update_assembly> image("image.tbl");
 
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
@@ -411,8 +413,10 @@ static void instruction (INS ins, void *v)
 	if (!opcode)
 		return;
 
-	ADDRINT instr_addr = INS_Address(ins);
+	UINT64 instr_addr = INS_Address(ins);
 	xed_decoded_inst_t *xed = INS_XedDec(ins);
+
+	image.update(instr_addr, assembly_t(opcode, INS_Disassemble(ins).c_str()));
 
 	opcode_t *operation = opcodes.get(opcode);
 	operation->category = INS_Category(ins);
@@ -477,16 +481,17 @@ static void instruction (INS ins, void *v)
 	}
 
 	if (INS_IsPredicated(ins)) {
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_ADDRINT, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_UINT64, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
 	} else {
-		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_ADDRINT, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
+		INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(on_ins), IARG_CONTEXT, IARG_UINT32, opcode, IARG_UINT64, instr_addr, IARG_UINT32, ops, IARG_IARGLIST, args, IARG_END);
 	}
 
 	IARGLIST_Free(args);
 }
 
-static void on_ins (CONTEXT *ctx, UINT32 opcode, ADDRINT instr_addr, UINT32 ops, ...)
+static void on_ins (CONTEXT *ctx, UINT32 opcode, UINT64 instr_addr, UINT32 ops, ...)
 {
+	static bool first_ins = true;
 	static array<int> write_list;
 	static array<ADDRINT> mem_list;
 	if ((instructions.total & 16383) == 0)
@@ -496,6 +501,12 @@ static void on_ins (CONTEXT *ctx, UINT32 opcode, ADDRINT instr_addr, UINT32 ops,
 		opcodes.save(logfp);
 		fprintf(logfp, "%lu Instructions %d/%d Opcodes\n", instructions.total, opcodes.cache.size(), opcodes.store.size());
 		fflush(stdout);
+	}
+
+	if (first_ins)
+	{
+		image.save(logfp);
+		first_ins = false;
 	}
 
 	static int int_bitwidth[64] = {
