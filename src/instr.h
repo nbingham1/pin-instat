@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cached_map.h"
+#include <db/cached_keystore.h>
 #include <stdint.h>
 
 struct memory_key_t {
@@ -41,9 +41,9 @@ struct instruction_record_t {
 	instruction_record_t(const char *mem, const char *exe);
 	~instruction_record_t();
 
-	cached_map<memory_key_t, memory_value_t, 5000, &update_mem> memory;
+	core::cached_keystore<memory_key_t, memory_value_t, 5000, &update_mem> memory;
 	// indexed by instruction address as obtained by INS_Address()
-	cached_map<uint64_t, uint64_t, 5000, &update> execution;	
+	core::cached_keystore<uint64_t, uint64_t, 5000, &update> execution;	
 	uint64_t total;
 
 	void finish(FILE *log = stdout);

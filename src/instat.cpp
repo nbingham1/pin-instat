@@ -6,11 +6,10 @@
 #include <locale>
 #include <csignal>
 
-#include "table.h"
-#include "cached_map.h"
+#include <db/table.h>
+#include <db/cached_keystore.h>
 
-#include "array.h"
-#include "math.h"
+#include <std/array.h>
 
 #include "reg.h"
 #include "opcode.h"
@@ -363,9 +362,9 @@ FILE *logfp;
 
 register_record_t registers("fanout.tbl", "age.tbl");
 instruction_record_t instructions("memory.tbl", "instrs.tbl");
-cached_map<uint64_t, opcode_t, 1000, &update_opcode> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
+core::cached_keystore<uint64_t, opcode_t, 1000, &update_opcode> opcodes("opcodes.tbl");	// indexed by instruction opcode as obtained by INS_Opcode()
 // {instruction address: opcode}
-cached_map<uint64_t, assembly_t, 1000, &update_assembly> image("image.tbl");
+core::cached_keystore<uint64_t, assembly_t, 1000, &update_assembly> image("image.tbl");
 
 std::map<ADDRINT,string> symbols;
 std::map<ADDRINT,std::pair<ADDRINT,string> > imgs;
@@ -492,8 +491,8 @@ static void instruction (INS ins, void *v)
 static void on_ins (CONTEXT *ctx, UINT32 opcode, UINT64 instr_addr, UINT32 ops, ...)
 {
 	static bool first_ins = true;
-	static array<int> write_list;
-	static array<ADDRINT> mem_list;
+	static core::array<int> write_list;
+	static core::array<ADDRINT> mem_list;
 	if ((instructions.total & 16383) == 0)
 	{
 		registers.finish(logfp);
@@ -629,11 +628,11 @@ static void on_ins (CONTEXT *ctx, UINT32 opcode, UINT64 instr_addr, UINT32 ops, 
 	}
 	va_end(lst);
 
-	for (array<int>::iterator i = write_list.begin(); i != write_list.end(); i++)
+	for (core::array<int>::iterator i = write_list.begin(); i != write_list.end(); i++)
 		registers.write(*i, instructions.total, logfp);
 	write_list.clear();
 
-	for (array<ADDRINT>::iterator i = mem_list.begin(); i != mem_list.end(); i++)
+	for (core::array<ADDRINT>::iterator i = mem_list.begin(); i != mem_list.end(); i++)
 		instructions.write(instr_addr, *i, logfp);
 	mem_list.clear();
 

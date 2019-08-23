@@ -1,0 +1,16 @@
+bool Lr, Le, Rr, Re;
+bool _Reset;
+
+prs {
+	_Reset & Re & Lr -> Rr+
+	Rr -> Le-
+	~_Reset | ~Re & ~Lr -> Rr-
+	~Rr -> Le+
+
+	Rr -> Re-
+	~Rr -> Re+
+
+	Le -> Lr+
+	~Le -> Lr-
+}
+

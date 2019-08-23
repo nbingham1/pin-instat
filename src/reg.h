@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cached_table.h"
+#include <db/cached_table.h>
 
 struct register_count_t
 {
@@ -29,8 +29,8 @@ struct register_record_t {
 	register_record_t(const char *fanout, const char *age);
 	~register_record_t();
 
-	cached_table<register_count_t, 1000> register_fanout;
-	cached_table<register_count_t, 1000> register_age;
+	core::cached_table<register_count_t, 1000> register_fanout;
+	core::cached_table<register_count_t, 1000> register_age;
 	reg_t regs[84];
 
 	void finish(FILE *log = stdout);

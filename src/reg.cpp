@@ -76,7 +76,7 @@ void register_record_t::write(int register_id, uint64_t instr_count, FILE *log) 
 		if (age > 999)
 			age = 999;
 
-		file::table<register_count_t>::iterator i;
+		core::table<register_count_t>::iterator i;
 
 		register_count_t *temp = register_fanout.get(fanout, log);
 		temp->count[register_class]++;

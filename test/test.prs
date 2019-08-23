@@ -1,0 +1,8 @@
+"_Reset" & "Re" & "Lr" -> "Rr"+
+"Rr" -> "Le"-
+~"_Reset" | ~"Re" & ~"Lr" -> "Rr"-
+~"Rr" -> "Le"+
+"Rr" -> "Re"-
+~"Rr" -> "Re"+
+"Le" -> "Lr"+
+~"Le" -> "Lr"-

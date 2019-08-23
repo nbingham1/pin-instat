@@ -1,0 +1,6 @@
+watchall
+set _Reset 0
+cycle
+set _Reset 1
+advance 10000
+quit

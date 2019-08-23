@@ -1,3 +1,9 @@
 [submodule "docs/format"]
 	path = docs/format
 	url = https://github.com/nbingham1/paper-format.git
+[submodule "dbcore"]
+	path = dbcore
+	url = git@github.com:c-cores/dbcore.git
+[submodule "stdcore"]
+	path = stdcore
+	url = git@github.com:c-cores/stdcore.git
